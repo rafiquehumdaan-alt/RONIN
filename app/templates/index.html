@@ -1,1 +1,646 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="RONIN simulated cloud companion"><title>RONIN · Cloud Companion</title><link rel="stylesheet" href="/static/styles.css"><script defer src="/static/app.js"></script></head><body><aside><div class="brand"><img src="/static/assets/ronin-sword.png" alt="RONIN sword"><div><b>RONIN</b><small>Cloud Companion</small></div></div><nav>{% for id,label in [('dashboard','Dashboard'),('resources','Resources'),('findings','Findings'),('costs','Costs'),('system','System / About')] %}<button data-page="{{id}}" class="{{'active' if loop.first}}">{{label}}</button>{% endfor %}</nav><footer>● Demo systems nominal<small>No AWS connection</small></footer></aside><main><header><button id="menu">☰</button><b>{{env.organisation}}</b><span>● {{env.mode}} · {{env.region}}</span></header><div class="notice"><b>SIMULATION</b> {{env.notice}}</div><section id="dashboard" class="page active"><div class="head"><small>INFRASTRUCTURE OVERVIEW</small><h1>Good evening, operator.</h1><p>Here is what RONIN sees across your simulated environment.</p></div><div class="metrics"><article><small>MONTHLY AWS SPEND · SIMULATED</small><strong>£{{"%.2f"|format(costs.monthly_spend)}}</strong><em>↑ 29.2% vs baseline</em></article><article><small>POTENTIAL SAVINGS</small><strong class="green">£{{"%.2f"|format(costs.potential_savings)}}<i>/mo</i></strong><em class="green">25.9% opportunity</em></article><article><small>RESOURCES</small><strong>{{resources|length}}</strong><em>5 service groups</em></article><article><small>HEALTH SCORE</small><strong>{{env.health_score}}<i>/100</i></strong></article></div><div class="grid"><article class="panel"><h2>Important findings</h2>{% for f in findings[:3] %}<button class="row" data-goto="findings"><i class="{{f.severity}}"></i><span><b>{{f.title}}</b><small>{{f.resource_name}} · {{f.reason}}</small></span><strong>£{{"%.2f"|format(f.saving)}}/mo</strong></button>{% endfor %}</article><article class="panel"><h2>Cost overview · simulated</h2>{% for c in costs.breakdown %}<div class="cost"><span>{{c.service}}</span><div><i style="width:{{c.amount/costs.monthly_spend*100}}%"></i></div><b>£{{"%.2f"|format(c.amount)}}</b></div>{% endfor %}</article><article class="panel rec"><img src="/static/assets/ronin-sword.png" alt=""><div><small>RONIN RECOMMENDATION</small><p>“{{findings[0].recommendation}}”</p><em>Deterministic template · no external AI</em></div></article><article class="panel"><h2>Recent demo activity</h2><p>Rules evaluation completed</p><p>Cost snapshot refreshed</p><p>Health score calculated</p></article></div></section><section id="resources" class="page"><div class="head"><small>SYNTHETIC INVENTORY</small><h1>Resources</h1><p>Operational details from Kairo Labs’ fictional environment.</p></div><article class="panel"><input id="search" placeholder="Filter resources…" aria-label="Filter resources"><div class="tr th"><span>Resource</span><span>Service</span><span>Type</span><span>State</span><span>Cost</span></div>{% for r in resources %}<div class="tr resource" data-search="{{(r.name~r.service~r.state)|lower}}"><span><b>{{r.name}}</b><small>{{r.id}}</small></span><span class="cyan">{{r.service}}</span><span>{{r.type}}</span><span>● {{r.state}}</span><span>£{{"%.2f"|format(r.monthly_cost)}}</span></div>{% endfor %}</article></section><section id="findings" class="page"><div class="head"><small>DETERMINISTIC RULES ENGINE</small><h1>Findings</h1><p>Every result is traceable to a simple demo rule.</p></div>{% for f in findings %}<article class="finding panel"><div class="findinghead"><i class="{{f.severity}}"></i><div><small>{{f.severity}}</small><h2>{{f.title}}</h2><p>{{f.resource_name}} · {{f.resource_id}}</p></div><strong>£{{"%.2f"|format(f.saving)}}/mo</strong></div><button class="why">Why did RONIN flag this? ＋</button><div class="explain"><div><small>RULE / THRESHOLD</small><p>{{f.threshold}}</p></div><div><small>OBSERVED</small>{% for x in f.observed %}<p>{{x}}</p>{% endfor %}</div><div><small>RESULT</small><p>{{f.reason}}</p></div><div><small>RECOMMENDATION</small><p>{{f.recommendation}}</p></div><button class="simulate" data-name="{{f.resource_name}}">Simulate action</button></div></article>{% endfor %}</section><section id="costs" class="page"><div class="head"><small>SYNTHETIC FINOPS VIEW</small><h1>Costs</h1></div><div class="costgrid"><article class="panel"><h2>Six-month spend trend</h2><div class="bars">{% for m in costs.history %}<div><span style="height:{{m.amount/3}}px"></span><small>{{m.month}}<br>£{{"%.0f"|format(m.amount)}}</small></div>{% endfor %}</div></article><article class="panel"><h2>Service allocation</h2>{% for c in costs.breakdown %}<p class="allocation"><span>{{c.service}}</span><b>£{{"%.2f"|format(c.amount)}}</b></p>{% endfor %}</article><article class="panel opportunity"><small>IDENTIFIED OPPORTUNITY</small><strong>£{{"%.2f"|format(costs.potential_savings)}} / month</strong><p>Directional estimates from educational rules, not production-grade advice.</p></article></div></section><section id="system" class="page"><div class="head"><small>SYSTEM PROFILE</small><h1>About RONIN</h1></div><div class="about"><article class="panel center"><img src="/static/assets/ronin-sword.png" alt="RONIN sword"><h2>Pre-beta · Demo mode</h2><p>Fictional AWS data and explainable deterministic checks.</p></article><article class="panel"><small>AVAILABLE NOW</small><h2>Current functionality</h2><ul><li>Synthetic resources and costs</li><li>Four deterministic rules</li><li>Read-only APIs and health</li></ul></article><article class="panel"><small>PRODUCT DIRECTION</small><h2>Future local-first companion</h2><p>Future credential access is intended to remain local. This hosted demo does not access customer AWS accounts.</p></article><article class="panel"><small>PUBLIC DEMO BOUNDARY</small><h2>No credentials. No customer data.</h2><p>No accounts, keys, uploads, personal data, AWS calls or write actions.</p></article></div></section></main><dialog><button class="close">×</button><small>SIMULATED ACTION</small><h2>Expected impact preview</h2><p id="dialogcopy"></p><b>No real infrastructure changes have been made.</b></dialog></body></html>
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="RONIN simulated cloud companion">
+
+    <title>RONIN · Cloud Companion</title>
+
+    <link rel="stylesheet" href="/static/styles.css">
+    <script defer src="/static/app.js"></script>
+</head>
+
+<body>
+
+    <!-- Sidebar -->
+    <aside>
+        <div class="brand">
+            <img src="/static/assets/ronin-sword.png" alt="RONIN sword">
+
+            <div>
+                <b>RONIN</b>
+                <small>Cloud Companion</small>
+            </div>
+        </div>
+
+        <nav>
+            {% for id, label in [
+                ('dashboard', 'Dashboard'),
+                ('resources', 'Resources'),
+                ('findings', 'Findings'),
+                ('costs', 'Costs'),
+                ('system', 'System / About')
+            ] %}
+                <button
+                    data-page="{{ id }}"
+                    class="{{ 'active' if loop.first }}"
+                >
+                    {{ label }}
+                </button>
+            {% endfor %}
+        </nav>
+
+        <footer>
+            ● Demo systems nominal
+            <small>No AWS connection</small>
+        </footer>
+    </aside>
+
+
+    <!-- Main content -->
+    <main>
+
+        <!-- Header -->
+        <header>
+            <button id="menu">☰</button>
+
+            <b>{{ env.organisation }}</b>
+
+            <span>
+                ● {{ env.mode }} · {{ env.region }}
+            </span>
+        </header>
+
+
+        <!-- Simulation notice -->
+        <div class="notice">
+            <b>SIMULATION</b>
+            {{ env.notice }}
+        </div>
+
+
+        <!-- ======================================== -->
+        <!-- DASHBOARD -->
+        <!-- ======================================== -->
+
+        <section id="dashboard" class="page active">
+
+            <div class="head">
+                <small>INFRASTRUCTURE OVERVIEW</small>
+
+                <h1>Good evening, operator.</h1>
+
+                <p>
+                    Here is what RONIN sees across your simulated environment.
+                </p>
+            </div>
+
+
+            <!-- Metrics -->
+            <div class="metrics">
+
+                <article>
+                    <small>MONTHLY AWS SPEND · SIMULATED</small>
+
+                    <strong>
+                        £{{ "%.2f"|format(costs.monthly_spend) }}
+                    </strong>
+
+                    <em>
+                        ↑ 29.2% vs baseline
+                    </em>
+                </article>
+
+
+                <article>
+                    <small>POTENTIAL SAVINGS</small>
+
+                    <strong class="green">
+                        £{{ "%.2f"|format(costs.potential_savings) }}<i>/mo</i>
+                    </strong>
+
+                    <em class="green">
+                        25.9% opportunity
+                    </em>
+                </article>
+
+
+                <article>
+                    <small>RESOURCES</small>
+
+                    <strong>
+                        {{ resources|length }}
+                    </strong>
+
+                    <em>
+                        5 service groups
+                    </em>
+                </article>
+
+
+                <article>
+                    <small>HEALTH SCORE</small>
+
+                    <strong>
+                        {{ env.health_score }}<i>/100</i>
+                    </strong>
+                </article>
+
+            </div>
+
+
+            <!-- Dashboard grid -->
+            <div class="grid">
+
+                <!-- Important findings -->
+                <article class="panel">
+
+                    <h2>Important findings</h2>
+
+                    {% for f in findings[:3] %}
+
+                        <button
+                            class="row"
+                            data-goto="findings"
+                        >
+                            <i class="{{ f.severity }}"></i>
+
+                            <span>
+                                <b>{{ f.title }}</b>
+
+                                <small>
+                                    {{ f.resource_name }} · {{ f.reason }}
+                                </small>
+                            </span>
+
+                            <strong>
+                                £{{ "%.2f"|format(f.saving) }}/mo
+                            </strong>
+                        </button>
+
+                    {% endfor %}
+
+                </article>
+
+
+                <!-- Cost overview -->
+                <article class="panel">
+
+                    <h2>Cost overview · simulated</h2>
+
+                    {% for c in costs.breakdown %}
+
+                        <div class="cost">
+
+                            <span>
+                                {{ c.service }}
+                            </span>
+
+                            <div>
+                                <i
+                                    style="width: {{ c.amount / costs.monthly_spend * 100 }}%"
+                                ></i>
+                            </div>
+
+                            <b>
+                                £{{ "%.2f"|format(c.amount) }}
+                            </b>
+
+                        </div>
+
+                    {% endfor %}
+
+                </article>
+
+
+                <!-- RONIN recommendation -->
+                <article class="panel rec">
+
+                    <img
+                        src="/static/assets/ronin-sword.png"
+                        alt=""
+                    >
+
+                    <div>
+                        <small>RONIN RECOMMENDATION</small>
+
+                        <p>
+                            “{{ findings[0].recommendation }}”
+                        </p>
+
+                        <em>
+                            Deterministic template · no external AI
+                        </em>
+                    </div>
+
+                </article>
+
+
+                <!-- Recent activity -->
+                <article class="panel">
+
+                    <h2>Recent demo activity</h2>
+
+                    <p>Rules evaluation completed</p>
+                    <p>Cost snapshot refreshed</p>
+                    <p>Health score calculated</p>
+
+                </article>
+
+            </div>
+
+        </section>
+
+
+        <!-- ======================================== -->
+        <!-- RESOURCES -->
+        <!-- ======================================== -->
+
+        <section id="resources" class="page">
+
+            <div class="head">
+                <small>SYNTHETIC INVENTORY</small>
+
+                <h1>Resources</h1>
+
+                <p>
+                    Operational details from Kairo Labs’ fictional environment.
+                </p>
+            </div>
+
+
+            <article class="panel">
+
+                <!-- Resource search -->
+                <input
+                    id="search"
+                    placeholder="Filter resources…"
+                    aria-label="Filter resources"
+                >
+
+
+                <!-- Table header -->
+                <div class="tr th">
+                    <span>Resource</span>
+                    <span>Service</span>
+                    <span>Type</span>
+                    <span>State</span>
+                    <span>Cost</span>
+                </div>
+
+
+                <!-- Resources -->
+                {% for r in resources %}
+
+                    <div
+                        class="tr resource"
+                        data-search="{{ (r.name ~ r.service ~ r.state)|lower }}"
+                    >
+
+                        <span>
+                            <b>{{ r.name }}</b>
+
+                            <small>
+                                {{ r.id }}
+                            </small>
+                        </span>
+
+                        <span class="cyan">
+                            {{ r.service }}
+                        </span>
+
+                        <span>
+                            {{ r.type }}
+                        </span>
+
+                        <span>
+                            ● {{ r.state }}
+                        </span>
+
+                        <span>
+                            £{{ "%.2f"|format(r.monthly_cost) }}
+                        </span>
+
+                    </div>
+
+                {% endfor %}
+
+            </article>
+
+        </section>
+
+
+        <!-- ======================================== -->
+        <!-- FINDINGS -->
+        <!-- ======================================== -->
+
+        <section id="findings" class="page">
+
+            <div class="head">
+                <small>DETERMINISTIC RULES ENGINE</small>
+
+                <h1>Findings</h1>
+
+                <p>
+                    Every result is traceable to a simple demo rule.
+                </p>
+            </div>
+
+
+            {% for f in findings %}
+
+                <article class="finding panel">
+
+                    <!-- Finding header -->
+                    <div class="findinghead">
+
+                        <i class="{{ f.severity }}"></i>
+
+                        <div>
+                            <small>
+                                {{ f.severity }}
+                            </small>
+
+                            <h2>
+                                {{ f.title }}
+                            </h2>
+
+                            <p>
+                                {{ f.resource_name }} · {{ f.resource_id }}
+                            </p>
+                        </div>
+
+                        <strong>
+                            £{{ "%.2f"|format(f.saving) }}/mo
+                        </strong>
+
+                    </div>
+
+
+                    <!-- Explanation toggle -->
+                    <button class="why">
+                        Why did RONIN flag this? ＋
+                    </button>
+
+
+                    <!-- Explanation -->
+                    <div class="explain">
+
+                        <div>
+                            <small>RULE / THRESHOLD</small>
+
+                            <p>
+                                {{ f.threshold }}
+                            </p>
+                        </div>
+
+
+                        <div>
+                            <small>OBSERVED</small>
+
+                            {% for x in f.observed %}
+                                <p>
+                                    {{ x }}
+                                </p>
+                            {% endfor %}
+                        </div>
+
+
+                        <div>
+                            <small>RESULT</small>
+
+                            <p>
+                                {{ f.reason }}
+                            </p>
+                        </div>
+
+
+                        <div>
+                            <small>RECOMMENDATION</small>
+
+                            <p>
+                                {{ f.recommendation }}
+                            </p>
+                        </div>
+
+
+                        <button
+                            class="simulate"
+                            data-name="{{ f.resource_name }}"
+                        >
+                            Simulate action
+                        </button>
+
+                    </div>
+
+                </article>
+
+            {% endfor %}
+
+        </section>
+
+
+        <!-- ======================================== -->
+        <!-- COSTS -->
+        <!-- ======================================== -->
+
+        <section id="costs" class="page">
+
+            <div class="head">
+                <small>SYNTHETIC FINOPS VIEW</small>
+
+                <h1>Costs</h1>
+            </div>
+
+
+            <div class="costgrid">
+
+                <!-- Spend trend -->
+                <article class="panel">
+
+                    <h2>Six-month spend trend</h2>
+
+                    <div class="bars">
+
+                        {% for m in costs.history %}
+
+                            <div>
+
+                                <span
+                                    style="height: {{ m.amount / 3 }}px"
+                                ></span>
+
+                                <small>
+                                    {{ m.month }}<br>
+                                    £{{ "%.0f"|format(m.amount) }}
+                                </small>
+
+                            </div>
+
+                        {% endfor %}
+
+                    </div>
+
+                </article>
+
+
+                <!-- Service allocation -->
+                <article class="panel">
+
+                    <h2>Service allocation</h2>
+
+                    {% for c in costs.breakdown %}
+
+                        <p class="allocation">
+
+                            <span>
+                                {{ c.service }}
+                            </span>
+
+                            <b>
+                                £{{ "%.2f"|format(c.amount) }}
+                            </b>
+
+                        </p>
+
+                    {% endfor %}
+
+                </article>
+
+
+                <!-- Opportunity -->
+                <article class="panel opportunity">
+
+                    <small>
+                        IDENTIFIED OPPORTUNITY
+                    </small>
+
+                    <strong>
+                        £{{ "%.2f"|format(costs.potential_savings) }} / month
+                    </strong>
+
+                    <p>
+                        Directional estimates from educational rules,
+                        not production-grade advice.
+                    </p>
+
+                </article>
+
+            </div>
+
+        </section>
+
+
+        <!-- ======================================== -->
+        <!-- SYSTEM / ABOUT -->
+        <!-- ======================================== -->
+
+        <section id="system" class="page">
+
+            <div class="head">
+                <small>SYSTEM PROFILE</small>
+
+                <h1>About RONIN</h1>
+            </div>
+
+
+            <div class="about">
+
+                <!-- Product status -->
+                <article class="panel center">
+
+                    <img
+                        src="/static/assets/ronin-sword.png"
+                        alt="RONIN sword"
+                    >
+
+                    <h2>
+                        Pre-beta · Demo mode
+                    </h2>
+
+                    <p>
+                        Fictional AWS data and explainable deterministic checks.
+                    </p>
+
+                </article>
+
+
+                <!-- Current functionality -->
+                <article class="panel">
+
+                    <small>AVAILABLE NOW</small>
+
+                    <h2>
+                        Current functionality
+                    </h2>
+
+                    <ul>
+                        <li>Synthetic resources and costs</li>
+                        <li>Four deterministic rules</li>
+                        <li>Read-only APIs and health</li>
+                    </ul>
+
+                </article>
+
+
+                <!-- Product direction -->
+                <article class="panel">
+
+                    <small>PRODUCT DIRECTION</small>
+
+                    <h2>
+                        Future local-first companion
+                    </h2>
+
+                    <p>
+                        Future credential access is intended to remain local.
+                        This hosted demo does not access customer AWS accounts.
+                    </p>
+
+                </article>
+
+
+                <!-- Demo boundary -->
+                <article class="panel">
+
+                    <small>PUBLIC DEMO BOUNDARY</small>
+
+                    <h2>
+                        No credentials. No customer data.
+                    </h2>
+
+                    <p>
+                        No accounts, keys, uploads, personal data, AWS calls
+                        or write actions.
+                    </p>
+
+                </article>
+
+            </div>
+
+        </section>
+
+    </main>
+
+
+    <!-- ======================================== -->
+    <!-- SIMULATION DIALOG -->
+    <!-- ======================================== -->
+
+    <dialog>
+
+        <button class="close">
+            ×
+        </button>
+
+        <small>
+            SIMULATED ACTION
+        </small>
+
+        <h2>
+            Expected impact preview
+        </h2>
+
+        <p id="dialogcopy"></p>
+
+        <b>
+            No real infrastructure changes have been made.
+        </b>
+
+    </dialog>
+
+</body>
+
+</html>

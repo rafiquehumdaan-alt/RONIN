@@ -186,7 +186,8 @@ Result:
 
 `{"status":"ok"}`
 
-The full RONIN interface was also successfully accessed through `http://localhost`.
+The full RONIN interface was also successfully accessed through `http://lo
+calhost`.
 
 ## Result
 

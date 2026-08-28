@@ -1,1 +1,38 @@
-const pages=[...document.querySelectorAll(".page")],nav=[...document.querySelectorAll("nav button")];function show(id){pages.forEach(x=>x.classList.toggle("active",x.id===id));nav.forEach(x=>x.classList.toggle("active",x.dataset.page===id));document.querySelector("aside").classList.remove("open");scrollTo(0,0)}nav.forEach(x=>x.onclick=()=>show(x.dataset.page));document.querySelectorAll("[data-goto]").forEach(x=>x.onclick=()=>show(x.dataset.goto));document.getElementById("menu").onclick=()=>document.querySelector("aside").classList.toggle("open");document.querySelectorAll(".why").forEach(x=>x.onclick=()=>x.nextElementSibling.classList.toggle("open"));document.getElementById("search").oninput=e=>document.querySelectorAll(".resource").forEach(x=>x.hidden=!x.dataset.search.includes(e.target.value.toLowerCase()));const d=document.querySelector("dialog");document.querySelectorAll(".simulate").forEach(x=>x.onclick=()=>{document.getElementById("dialogcopy").textContent="RONIN would prepare a review plan for "+x.dataset.name+". No command would run.";d.showModal()});document.querySelector(".close").onclick=()=>d.close();
+const pages = [...document.querySelectorAll(".page")],
+  nav = [...document.querySelectorAll("nav button")];
+function show(id) {
+  pages.forEach((x) => x.classList.toggle("active", x.id === id));
+  nav.forEach((x) => x.classList.toggle("active", x.dataset.page === id));
+  document.querySelector("aside").classList.remove("open");
+  scrollTo(0, 0);
+}
+nav.forEach((x) => (x.onclick = () => show(x.dataset.page)));
+document
+  .querySelectorAll("[data-goto]")
+  .forEach((x) => (x.onclick = () => show(x.dataset.goto)));
+document.getElementById("menu").onclick = () =>
+  document.querySelector("aside").classList.toggle("open");
+document
+  .querySelectorAll(".why")
+  .forEach(
+    (x) => (x.onclick = () => x.nextElementSibling.classList.toggle("open")),
+  );
+document.getElementById("search").oninput = (e) =>
+  document
+    .querySelectorAll(".resource")
+    .forEach(
+      (x) =>
+        (x.hidden = !x.dataset.search.includes(e.target.value.toLowerCase())),
+    );
+const d = document.querySelector("dialog");
+document.querySelectorAll(".simulate").forEach(
+  (x) =>
+    (x.onclick = () => {
+      document.getElementById("dialogcopy").textContent =
+        "RONIN would prepare a review plan for " +
+        x.dataset.name +
+        ". No command would run.";
+      d.showModal();
+    }),
+);
+document.querySelector(".close").onclick = () => d.close();
