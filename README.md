@@ -15,7 +15,3 @@ The assignment has been documented throughout the project in a **diary-style for
 All detailed information about this assignment can be found in:
 
 [**RONIN – `ecs-assignment-v1-notes.md`**](https://github.com/rafiquehumdaan-alt/RONIN/blob/main/ecs-assignment-v1-notes.md)
-
-The main RONIN project repository can be found here:
-
-[**RONIN Repository**](https://github.com/rafiquehumdaan-alt/RONIN/tree/main)
