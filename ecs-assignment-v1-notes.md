@@ -240,13 +240,15 @@ For the later CI/CD implementation, image versions will use Git commit SHAs inst
 
 ---
 
+---
+
 # AWS Infrastructure Planning
 
 Before beginning the manual ClickOps deployment, I planned the AWS infrastructure that will be used to host RONIN.
 
-The architecture was deliberately designed before deployment so that the manual ClickOps environment and the later Terraform environment can follow the same overall design.
+The architecture was designed before deployment so that the initial manual ClickOps environment and the later Terraform implementation can follow the same overall design.
 
-The architecture diagram and more detailed reasoning behind the infrastructure decisions can be found in the:
+The full architecture diagram and detailed reasoning behind each infrastructure decision can be found in the:
 
 `architecture-diagram/`
 
@@ -254,111 +256,130 @@ folder.
 
 ## Networking
 
-RONIN will use a custom VPC in the `eu-west-2` region with two public subnets spread across two Availability Zones.
+RONIN will use a custom VPC (`10.0.0.0/16`) in `eu-west-2`, spanning two Availability Zones.
 
-An Internet Gateway and public route table will provide internet connectivity to the public subnets.
+The network will contain two public subnets and two private application subnets.
 
-Using two Availability Zones allows the application architecture to avoid depending entirely on a single AZ and provides the foundation for running redundant RONIN tasks.
+The public subnets will contain the internet-facing infrastructure, including the Application Load Balancer and NAT Gateways.
 
-Public subnets were selected for this project to keep the networking relatively simple and avoid introducing additional NAT Gateway or VPC endpoint infrastructure.
+The RONIN Fargate tasks will run inside the private application subnets, preventing them from being directly exposed to the internet.
 
-## Application Load Balancer
+An Internet Gateway, public/private route tables and one NAT Gateway per Availability Zone will provide the required routing and controlled outbound connectivity.
 
-An internet-facing Application Load Balancer will provide the public entry point for RONIN.
+VPC endpoints will also be used where appropriate to provide private connectivity to supported AWS services such as S3 and DynamoDB.
 
-The ALB will accept HTTPS traffic on port `443`. Requests received over HTTP on port `80` will be redirected to HTTPS.
+## Application Delivery
 
-The ALB will then forward application traffic internally to the healthy RONIN Fargate tasks on port `80`.
+Amazon Route 53 will provide DNS for RONIN's custom domain.
 
-## Route 53 and AWS Certificate Manager
+CloudFront will provide an edge/CDN layer in front of the application, with the Application Load Balancer acting as the origin for dynamic application traffic.
 
-Amazon Route 53 will provide DNS for the RONIN custom domain and direct users towards the Application Load Balancer.
+AWS Certificate Manager will provide the TLS certificates required for HTTPS.
 
-AWS Certificate Manager (ACM) will provide the TLS certificate attached to the ALB HTTPS listener.
+The ALB will distribute application traffic between healthy RONIN Fargate tasks through an IP-based Target Group.
 
-The ALB therefore handles the HTTPS encryption/decryption while the RONIN containers can continue receiving normal HTTP traffic internally.
-
-## Target Group and Health Checks
-
-The Application Load Balancer will use an IP-based Target Group containing the IP addresses of the running Fargate tasks.
-
-The Target Group will regularly check RONIN's:
-
-`/health`
-
-endpoint.
-
-Only healthy RONIN tasks will receive application traffic from the ALB.
+The Target Group will use RONIN's `/health` endpoint to determine whether each task is healthy before traffic is forwarded to it.
 
 ## Amazon ECS and AWS Fargate
 
-Amazon ECS will provide the container orchestration for RONIN, while AWS Fargate will provide the compute required to run the containers without requiring me to provision or manage EC2 instances.
+Amazon ECS will provide container orchestration while AWS Fargate will provide the compute required to run RONIN without directly managing EC2 instances.
 
-The ECS Service will use a:
+The ECS Service will maintain a minimum of two RONIN tasks across the multi-AZ architecture for redundancy.
 
-`Desired count: 2`
+ECS Service Auto Scaling will allow the service to scale between:
 
-This means ECS will attempt to keep two RONIN Fargate tasks running continuously.
+- Minimum: `2`
+- Desired: `2`
+- Maximum: `4`
 
-The infrastructure spans two Availability Zones so the RONIN workload can be distributed across AZs, providing redundancy rather than relying on a single running container.
+If a task becomes unhealthy, ECS can replace it while the ALB continues directing traffic towards healthy targets.
 
-If a task fails, ECS can start a replacement to return the service to its desired state.
+## Security
 
-## ECS Task Definition
+The ALB and ECS workloads will use separate Security Groups.
 
-An ECS Task Definition will describe how each RONIN task should run.
+The ECS Security Group will only accept application traffic from the ALB Security Group.
 
-This will include settings such as the ECR image, container port, CPU, memory and required IAM configuration.
+Combined with private application subnets, this provides multiple layers of protection between the internet and the RONIN containers.
 
-This provides ECS with a repeatable definition for starting and replacing RONIN tasks.
-
-## Security Groups
-
-Two Security Groups will be used.
-
-The ALB Security Group will allow inbound traffic from the internet on ports `80` and `443`.
-
-The ECS Security Group will allow inbound traffic on RONIN's port `80` only when it originates from the ALB Security Group.
-
-This prevents normal internet traffic from directly accessing the RONIN Fargate tasks and ensures application traffic enters through the load balancer.
+IAM roles will follow least-privilege principles and provide ECS, RONIN and supporting AWS services with only the permissions they require.
 
 ## Amazon ECR
 
-Amazon ECR stores the private RONIN Docker image.
+The previously created private ECR repository will provide the container image used by ECS.
 
-When ECS needs to start a RONIN Fargate task, the configured container image can be retrieved from ECR and used to start the container.
+When a Fargate task starts, ECS/Fargate can retrieve the required version of the RONIN image from ECR.
 
-This means the same container image that was built and tested locally can be deployed into AWS.
+## DynamoDB and S3
 
-## IAM
+DynamoDB will provide persistent NoSQL storage for structured RONIN data such as analysis runs, findings and report metadata.
 
-IAM roles will provide ECS and Fargate with the AWS permissions required to perform operations such as retrieving the private container image from ECR and sending logs.
+Amazon S3 will provide object storage for generated RONIN reports and exports.
 
-Permissions will be kept as limited as reasonably possible rather than giving the application unnecessary access to AWS resources.
+This gives the two services separate responsibilities: DynamoDB for structured application records and S3 for report objects.
 
-## CloudWatch Logs
+## AWS Lambda
 
-RONIN container logs will be sent to Amazon CloudWatch Logs.
+Lambda will provide event-driven processing for reports uploaded to S3.
 
-This provides centralised logging for the running containers and makes it possible to monitor and troubleshoot the application without directly accessing the Fargate tasks.
+The planned workflow is:
+
+`RONIN → S3 → Lambda → DynamoDB`
+
+When RONIN creates a report in S3, an S3 event can invoke Lambda automatically. Lambda can process the event and store the relevant structured metadata in DynamoDB.
+
+This allows the project to demonstrate both long-running container workloads with ECS/Fargate and event-driven serverless processing with Lambda.
+
+## Monitoring and Logging
+
+Amazon CloudWatch will provide centralised logs, metrics and monitoring for the infrastructure.
+
+RONIN container logs will be sent to CloudWatch Logs, while CloudWatch metrics and alarms will be used to monitor areas such as ECS utilisation, unhealthy ALB targets and Lambda errors.
+
+## Infrastructure Automation
+
+The architecture will first be deployed manually using AWS ClickOps to understand and verify how the services connect.
+
+The manually created infrastructure will then be removed and recreated using modular Terraform.
+
+Terraform will use remote state in S3 with state locking.
+
+GitHub Actions will later automate application and infrastructure deployments, using AWS OIDC authentication rather than long-lived AWS access keys.
 
 ---
 
 # Infrastructure Design Decisions
 
-The infrastructure has intentionally been kept focused on what RONIN actually requires.
+The planned architecture was expanded beyond the minimum assignment requirements to demonstrate a broader range of practical AWS and DevOps skills while still giving each service a clear purpose.
 
-Services such as RDS, DynamoDB, S3, CloudFront and WAF have not been added because the current RONIN application does not require them.
+The design now demonstrates:
 
-Private subnets were also considered for the Fargate tasks. They would provide an additional layer of network isolation, but would introduce additional outbound networking requirements such as NAT Gateways or VPC endpoints.
+- Custom VPC and CIDR planning
+- Public and private subnetting
+- Multi-AZ architecture
+- Internet Gateway and NAT
+- VPC endpoints
+- Docker and Amazon ECR
+- ECS and Fargate
+- Multi-task redundancy
+- ECS Auto Scaling
+- Application Load Balancing
+- Health checks
+- Route 53 and HTTPS
+- CloudFront
+- Security Groups and IAM
+- DynamoDB
+- Amazon S3
+- Lambda event-driven processing
+- CloudWatch logging, metrics and alarms
+- Terraform and remote state
+- CI/CD with GitHub Actions and AWS OIDC
 
-For this project, public Fargate networking combined with an ECS Security Group that only accepts application traffic from the ALB provides a simpler and lower-cost architecture.
+Services are still only included where they can provide a clear architectural or application function rather than being added purely for complexity.
 
-The final architecture therefore focuses on containerisation, managed compute, redundancy across two Fargate tasks, multi-AZ deployment, load balancing, health checking, HTTPS, restricted network access and centralised logging without introducing unnecessary AWS services.
+More detailed reasoning for each decision, along with the planned infrastructure diagram, can be found in the `architecture-diagram/` folder.
 
-More detailed reasoning for these decisions, along with the planned infrastructure diagram, can be found in the `architecture-diagram/` folder.
-
-TIME LOG : + 3 & 1/2 hours . 
+TIME LOG: + 6 hours (Planning/designing infra is not quick!)
 
 
 
