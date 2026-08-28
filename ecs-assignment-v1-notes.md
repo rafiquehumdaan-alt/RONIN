@@ -26,6 +26,8 @@ The public pre-beta provides a safe way to demonstrate the concept without expos
 
 ---
 
+# Day 1 – RONIN Application Development and Docker Containerisation
+
 # Application Setup
 
 ## Technology Stack
@@ -107,9 +109,7 @@ RONIN:
 * Passes its automated tests
 * Is ready for containerisation with Docker
 
-All work done on this document prior to this message was completed on 27/08/2026 12:26pm. Going to take a short break and get back to it later. 
-
-
+Going to take a short break and get back to it later. 
 
 # Docker Containerisation
 
@@ -197,6 +197,170 @@ RONIN has now been successfully:
 
 The application is ready for the next stage, where the Docker image will be stored in Amazon ECR before deployment to ECS.
 
+TIME LOG : + 5 hours .   
+
+# Day 2 – Amazon ECR and AWS Infrastructure Planning
+
+## Amazon ECR Setup
+
+After successfully building and testing the RONIN Docker image locally, I created a private Amazon ECR repository called `ronin` in the `eu-west-2` region.
+
+Amazon ECR is being used as the private container registry for RONIN. This allows AWS ECS to retrieve and run the same Docker image that was tested locally.
+
+The repository was configured with immutable image tags to help prevent an existing image version from being accidentally overwritten.
+
+## Connecting Docker to ECR
+
+I authenticated my local Docker client with Amazon ECR using the AWS CLI:
+
+```bash
+aws ecr get-login-password --region eu-west-2 | \
+docker login --username AWS --password-stdin <ECR-REGISTRY>
+```
+
+This authenticated Docker with the private ECR registry and allowed the locally built image to be pushed into AWS.
+
+## Tagging and Pushing RONIN
+
+The locally tested RONIN image was tagged for the ECR repository:
+
+```bash
+docker tag ronin:local <ECR-REGISTRY>/ronin:v1
+```
+
+The image was then pushed to ECR:
+
+```bash
+docker push <ECR-REGISTRY>/ronin:v1
+```
+
+The `v1` image was successfully confirmed in the ECR console.
+
+For the later CI/CD implementation, image versions will use Git commit SHAs instead of manually created version tags. This will make each deployed image traceable to a specific version of the source code.
+
+---
+
+# AWS Infrastructure Planning
+
+Before beginning the manual ClickOps deployment, I planned the AWS infrastructure that will be used to host RONIN.
+
+The architecture was deliberately designed before deployment so that the manual ClickOps environment and the later Terraform environment can follow the same overall design.
+
+The architecture diagram and more detailed reasoning behind the infrastructure decisions can be found in the:
+
+`architecture-diagram/`
+
+folder.
+
+## Networking
+
+RONIN will use a custom VPC in the `eu-west-2` region with two public subnets spread across two Availability Zones.
+
+An Internet Gateway and public route table will provide internet connectivity to the public subnets.
+
+Using two Availability Zones allows the application architecture to avoid depending entirely on a single AZ and provides the foundation for running redundant RONIN tasks.
+
+Public subnets were selected for this project to keep the networking relatively simple and avoid introducing additional NAT Gateway or VPC endpoint infrastructure.
+
+## Application Load Balancer
+
+An internet-facing Application Load Balancer will provide the public entry point for RONIN.
+
+The ALB will accept HTTPS traffic on port `443`. Requests received over HTTP on port `80` will be redirected to HTTPS.
+
+The ALB will then forward application traffic internally to the healthy RONIN Fargate tasks on port `80`.
+
+## Route 53 and AWS Certificate Manager
+
+Amazon Route 53 will provide DNS for the RONIN custom domain and direct users towards the Application Load Balancer.
+
+AWS Certificate Manager (ACM) will provide the TLS certificate attached to the ALB HTTPS listener.
+
+The ALB therefore handles the HTTPS encryption/decryption while the RONIN containers can continue receiving normal HTTP traffic internally.
+
+## Target Group and Health Checks
+
+The Application Load Balancer will use an IP-based Target Group containing the IP addresses of the running Fargate tasks.
+
+The Target Group will regularly check RONIN's:
+
+`/health`
+
+endpoint.
+
+Only healthy RONIN tasks will receive application traffic from the ALB.
+
+## Amazon ECS and AWS Fargate
+
+Amazon ECS will provide the container orchestration for RONIN, while AWS Fargate will provide the compute required to run the containers without requiring me to provision or manage EC2 instances.
+
+The ECS Service will use a:
+
+`Desired count: 2`
+
+This means ECS will attempt to keep two RONIN Fargate tasks running continuously.
+
+The infrastructure spans two Availability Zones so the RONIN workload can be distributed across AZs, providing redundancy rather than relying on a single running container.
+
+If a task fails, ECS can start a replacement to return the service to its desired state.
+
+## ECS Task Definition
+
+An ECS Task Definition will describe how each RONIN task should run.
+
+This will include settings such as the ECR image, container port, CPU, memory and required IAM configuration.
+
+This provides ECS with a repeatable definition for starting and replacing RONIN tasks.
+
+## Security Groups
+
+Two Security Groups will be used.
+
+The ALB Security Group will allow inbound traffic from the internet on ports `80` and `443`.
+
+The ECS Security Group will allow inbound traffic on RONIN's port `80` only when it originates from the ALB Security Group.
+
+This prevents normal internet traffic from directly accessing the RONIN Fargate tasks and ensures application traffic enters through the load balancer.
+
+## Amazon ECR
+
+Amazon ECR stores the private RONIN Docker image.
+
+When ECS needs to start a RONIN Fargate task, the configured container image can be retrieved from ECR and used to start the container.
+
+This means the same container image that was built and tested locally can be deployed into AWS.
+
+## IAM
+
+IAM roles will provide ECS and Fargate with the AWS permissions required to perform operations such as retrieving the private container image from ECR and sending logs.
+
+Permissions will be kept as limited as reasonably possible rather than giving the application unnecessary access to AWS resources.
+
+## CloudWatch Logs
+
+RONIN container logs will be sent to Amazon CloudWatch Logs.
+
+This provides centralised logging for the running containers and makes it possible to monitor and troubleshoot the application without directly accessing the Fargate tasks.
+
+---
+
+# Infrastructure Design Decisions
+
+The infrastructure has intentionally been kept focused on what RONIN actually requires.
+
+Services such as RDS, DynamoDB, S3, CloudFront and WAF have not been added because the current RONIN application does not require them.
+
+Private subnets were also considered for the Fargate tasks. They would provide an additional layer of network isolation, but would introduce additional outbound networking requirements such as NAT Gateways or VPC endpoints.
+
+For this project, public Fargate networking combined with an ECS Security Group that only accepts application traffic from the ALB provides a simpler and lower-cost architecture.
+
+The final architecture therefore focuses on containerisation, managed compute, redundancy across two Fargate tasks, multi-AZ deployment, load balancing, health checking, HTTPS, restricted network access and centralised logging without introducing unnecessary AWS services.
+
+More detailed reasoning for these decisions, along with the planned infrastructure diagram, can be found in the `architecture-diagram/` folder.
+
+TIME LOG : + 3 & 1/2 hours . 
 
 
-All work done on this document prior to this message was completed on 27/08/2026 15:33pm. That's all for today will continue tomorrow.  
+
+
+
