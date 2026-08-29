@@ -1,3 +1,4 @@
+from .storage.aws import save_analysis
 from flask import Blueprint, jsonify, render_template
 from .data.demo import ENV, RESOURCES, COSTS
 from .rules.engine import analyse
@@ -49,3 +50,15 @@ def fs():
 @api.get("/api/costs")
 def costs():
     return jsonify(COSTS)
+
+@api.post("/api/analyse")
+def run_analysis():
+    current_findings = findings()
+
+    record = save_analysis(RESOURCES, current_findings)
+
+    return jsonify(
+        demo=True,
+        saved=True,
+        analysis=record,
+    ), 201

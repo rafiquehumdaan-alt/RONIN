@@ -336,40 +336,6 @@ Relevant alarms can monitor conditions such as:
 
 This provides proactive monitoring rather than relying entirely on manual checks.
 
-## Terraform
-
-After the initial ClickOps deployment is completed and removed, the infrastructure will be recreated using Terraform.
-
-The Terraform configuration will be separated into modules rather than placing the entire environment into one large configuration.
-
-This makes the infrastructure repeatable, version-controlled and easier to maintain.
-
-## Terraform Remote State
-
-Terraform state will be stored remotely in Amazon S3 with state locking enabled.
-
-Remote state prevents the project's infrastructure state from being dependent on a single local machine, while locking helps prevent conflicting Terraform operations.
-
-## GitHub Actions and OIDC
-
-GitHub Actions will provide CI/CD automation for the RONIN application and Terraform infrastructure.
-
-The pipelines will cover areas such as:
-
-- Application testing
-- Docker image building
-- Commit-SHA image tagging
-- ECR publishing
-- Terraform formatting and validation
-- Terraform planning
-- Infrastructure deployment
-- Infrastructure destruction
-- Post-deployment HTTPS health checks
-
-GitHub Actions will authenticate with AWS using OIDC rather than storing long-lived AWS access keys as repository secrets.
-
-This provides a more secure approach to CI/CD authentication.
-
 ---
 
 # Overall Application Flow

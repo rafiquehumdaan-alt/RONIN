@@ -13,7 +13,7 @@ RUN /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
 FROM python:3.12-slim AS runtime
 
 ENV PATH="/opt/venv/bin:$PATH"
-ENV PORT=80
+ENV PORT=8080
 
 WORKDIR /app
 
@@ -29,6 +29,6 @@ COPY --chown=ronin:ronin run.py .
 
 USER ronin
 
-EXPOSE 80
+EXPOSE 8080
 
-CMD ["gunicorn", "--bind", "0.0.0.0:80", "--workers", "2", "run:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "run:app"]

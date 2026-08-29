@@ -381,7 +381,757 @@ More detailed reasoning for each decision, along with the planned infrastructure
 
 TIME LOG: + 6 hours (Planning/designing infra is not quick!)
 
+# Day 3 — AWS ClickOps Production Deployment
 
+## Objective
 
+The goal of Day 3 was to take the RONIN container image stored in Amazon ECR and manually deploy it to a production-style AWS architecture using ClickOps.
+
+The deployment was intentionally completed manually before Terraform so that I could understand how the individual AWS resources connect together before recreating the infrastructure as code.
+
+The final deployment included:
+
+- Custom VPC
+- Public and private subnets across two Availability Zones
+- Internet Gateway
+- NAT Gateways
+- VPC Gateway Endpoints
+- Application Load Balancer
+- ECS Fargate
+- ECS Service Auto Scaling
+- ECR
+- DynamoDB
+- S3
+- Lambda
+- EventBridge Scheduler
+- CloudWatch Logs
+- IAM roles
+- Route 53
+- ACM
+- CloudFront
+- Custom HTTPS domain
+
+---
+
+## 1. Networking Architecture
+
+A custom VPC was created:
+
+- **Name:** `ronin-vpc`
+- **CIDR:** `10.0.0.0/16`
+- **Region:** `eu-west-2`
+
+Four subnets were created across two Availability Zones.
+
+### Public Subnets
+
+- `ronin-public-a` — `10.0.1.0/24` — `eu-west-2a`
+- `ronin-public-b` — `10.0.2.0/24` — `eu-west-2b`
+
+### Private Application Subnets
+
+- `ronin-private-app-a` — `10.0.11.0/24` — `eu-west-2a`
+- `ronin-private-app-b` — `10.0.12.0/24` — `eu-west-2b`
+
+The Application Load Balancer was placed in the public subnets, while the ECS Fargate tasks were placed in the private subnets.
+
+This means the application containers were not directly exposed to the internet.
+
+---
+
+## 2. Internet Gateway and Routing
+
+An Internet Gateway named `ronin-igw` was attached to the VPC.
+
+The public route table contained:
+
+- `10.0.0.0/16` → Local
+- `0.0.0.0/0` → Internet Gateway
+
+This allowed internet-facing resources such as the Application Load Balancer and NAT Gateways to communicate with the internet.
+
+Separate private route tables were used for the two private application subnets.
+
+---
+
+## 3. NAT Gateways
+
+Two NAT Gateways were deployed:
+
+- `ronin-nat-a` in Public Subnet A
+- `ronin-nat-b` in Public Subnet B
+
+Each private subnet routed outbound internet traffic through the NAT Gateway in the same Availability Zone.
+
+This allowed the private Fargate tasks to initiate outbound connections without assigning public IP addresses to the containers.
+
+Two NAT Gateways were used so that each Availability Zone had its own outbound path rather than both private subnets depending on a single NAT Gateway.
+
+---
+
+## 4. VPC Gateway Endpoints
+
+Gateway endpoints were created for:
+
+- Amazon S3
+- Amazon DynamoDB
+
+These endpoints were associated with the private route tables.
+
+This allows traffic from the private Fargate tasks to S3 and DynamoDB to use AWS's private networking rather than travelling through the NAT Gateways.
+
+The NAT Gateways remain available for other outbound traffic that does not use these gateway endpoints.
+
+---
+
+## 5. Security Groups
+
+Two main security groups were created.
+
+### ALB Security Group
+
+The `ronin-alb-sg` security group was attached to the Application Load Balancer.
+
+Inbound access allowed:
+
+- TCP port `80` from the internet
+- TCP port `443` from the internet
+
+### ECS Security Group
+
+The `ronin-ecs-sg` security group was attached to the Fargate tasks.
+
+Inbound access allowed:
+
+- TCP port `8080` from `ronin-alb-sg` only
+
+The Fargate tasks therefore did not accept application traffic directly from the internet.
+
+Only traffic that had passed through the Application Load Balancer could reach the RONIN containers.
+
+---
+
+## 6. ECS Fargate
+
+An ECS cluster named `ronin-cluster` was created.
+
+The application was deployed using AWS Fargate, meaning AWS manages the underlying compute infrastructure rather than requiring EC2 instances to be provisioned and maintained manually.
+
+The final task definition was:
+
+- **Task definition:** `ronin-task:3`
+- **CPU:** `0.25 vCPU`
+- **Memory:** `0.5 GB`
+- **Network mode:** `awsvpc`
+- **Container port:** `8080`
+
+The container image was pulled from the private RONIN ECR repository.
+
+---
+
+## 7. Container Port 8080 Troubleshooting
+
+The original Docker container attempted to listen on port `80`.
+
+RONIN deliberately runs as a non-root Linux user inside the container as a security measure.
+
+The first Fargate deployment failed with:
+
+`[Errno 13] Permission denied`
+
+CloudWatch Logs showed that Gunicorn could not bind to `0.0.0.0:80`.
+
+Port 80 is a privileged Linux port and the non-root `ronin` user did not have permission to bind to it.
+
+Instead of weakening the security of the container by running the application as root, the internal application port was changed to `8080`.
+
+The Application Load Balancer continued to expose the standard HTTP and HTTPS ports externally while forwarding application traffic internally to port `8080`.
+
+This preserved the non-root container security control while resolving the deployment issue.
+
+---
+
+## 8. ECS Service and High Availability
+
+An ECS Service named `ronin-service` was created.
+
+The desired task count was configured as:
+
+- **Desired tasks:** `2`
+
+The two Fargate tasks were distributed across:
+
+- `eu-west-2a`
+- `eu-west-2b`
+
+Both tasks were registered with the Application Load Balancer target group.
+
+This provides redundancy because the application is not dependent on one container or one Availability Zone.
+
+If a task becomes unhealthy or stops, ECS can replace it while traffic continues to be served by another healthy task.
+
+---
+
+## 9. ECS Service Auto Scaling
+
+ECS Service Auto Scaling was configured with:
+
+- **Minimum tasks:** `2`
+- **Maximum tasks:** `4`
+- **Policy type:** Target tracking
+- **Metric:** `ECSServiceAverageCPUUtilization`
+- **Target:** `70%`
+
+This allows ECS to increase the number of running RONIN tasks when CPU utilisation rises.
+
+The number of tasks can then decrease again when additional capacity is no longer required.
+
+The minimum remains at two tasks to maintain application availability.
+
+---
+
+## 10. Application Load Balancer
+
+An internet-facing Application Load Balancer named `ronin-alb` was created.
+
+The ALB was deployed across both public subnets.
+
+The final target group was:
+
+- **Name:** `ronin-tg-8080`
+- **Protocol:** HTTP
+- **Port:** `8080`
+- **Target type:** IP
+
+The target type was set to `IP` because Fargate tasks using `awsvpc` networking receive their own network interfaces and private IP addresses.
+
+---
+
+## 11. Health Checks
+
+The ALB target group used the following health check endpoint:
+
+`/health`
+
+RONIN responds to this endpoint with:
+
+`{"status":"ok"}`
+
+Both Fargate targets successfully reached a `Healthy` state.
+
+This allows the Application Load Balancer to avoid sending application traffic to unhealthy containers.
+
+---
+
+## 12. HTTP to HTTPS Redirection
+
+The Application Load Balancer contained two listeners.
+
+### HTTP Listener
+
+- **Port:** `80`
+- **Action:** 301 redirect to HTTPS port `443`
+
+### HTTPS Listener
+
+- **Port:** `443`
+- **Action:** Forward traffic to `ronin-tg-8080`
+
+The HTTP redirect was verified using:
+
+`curl -I http://origin.ronin.humdaan.co.uk/health`
+
+The response returned:
+
+`HTTP/1.1 301 Moved Permanently`
+
+and redirected the request to:
+
+`https://origin.ronin.humdaan.co.uk:443/health`
+
+This confirmed that HTTP traffic was correctly redirected to HTTPS.
+
+---
+
+## 13. DynamoDB
+
+A DynamoDB table named `ronin-analyses` was created.
+
+The partition key was:
+
+- **Partition key:** `analysis_id`
+- **Type:** String
+
+RONIN uses DynamoDB to store structured analysis metadata.
+
+When an analysis is generated, information about the analysis can be persisted in DynamoDB and retrieved later.
+
+DynamoDB was suitable for this use case because it provides serverless structured storage without requiring a database server to be managed.
+
+---
+
+## 14. S3 Reports
+
+A private S3 bucket named `ronin-reports` was created.
+
+RONIN stores generated JSON reports in this bucket.
+
+Objects were organised into prefixes such as:
+
+- `analyses/`
+- `weekly/`
+
+DynamoDB and S3 therefore have separate responsibilities.
+
+DynamoDB stores structured and queryable analysis information, while S3 stores generated report files.
+
+The S3 bucket was not publicly exposed.
+
+---
+
+## 15. ECS Task Role
+
+RONIN accesses DynamoDB and S3 using an ECS Task Role named:
+
+`ronin-ecs-task-role`
+
+The application does not contain hardcoded AWS access keys.
+
+The role granted the application only the permissions required for its storage functionality.
+
+DynamoDB permissions were restricted to the `ronin-analyses` table.
+
+S3 permissions were restricted to the `ronin-reports` bucket.
+
+This follows the principle of least privilege.
+
+---
+
+## 16. ECS Execution Role vs Task Role
+
+Two separate IAM roles were used for ECS.
+
+### ECS Execution Role
+
+`ronin-ecs-execution-role`
+
+This role is used by ECS for infrastructure-level operations such as:
+
+- Pulling the container image from ECR
+- Sending container logs to CloudWatch
+- Starting the ECS task
+
+### ECS Task Role
+
+`ronin-ecs-task-role`
+
+This role is used by the application running inside the container.
+
+It provides RONIN with permission to access:
+
+- DynamoDB
+- S3
+
+The execution role therefore provides permissions required by ECS to operate the task, while the task role provides permissions required by the application itself.
+
+---
+
+## 17. Real Application Persistence Test
+
+A real analysis request was sent to the deployed RONIN application using the `/api/analyse` endpoint.
+
+The application generated a new analysis ID.
+
+The corresponding analysis record was then verified inside:
+
+`DynamoDB → ronin-analyses`
+
+The generated report was also verified inside:
+
+`S3 → ronin-reports → analyses/`
+
+This confirmed that the deployed Fargate application could successfully process an API request and persist data to both DynamoDB and S3.
+
+---
+
+## 18. Lambda Weekly Summary
+
+A Lambda function named `ronin-weekly-summary` was created.
+
+The Lambda function handles scheduled background processing separately from the continuously running RONIN web application.
+
+Its purpose is to read analysis information from DynamoDB, generate a weekly summary, and write the generated report into the `weekly/` location in the S3 reports bucket.
+
+Lambda was suitable for this workload because the operation is short-lived and event-driven and does not require another continuously running container.
+
+---
+
+## 19. EventBridge Scheduler
+
+The Lambda function was triggered using Amazon EventBridge Scheduler.
+
+The schedule was configured for:
+
+- **Day:** Sunday
+- **Time:** 09:00
+- **Timezone:** Europe/London
+
+EventBridge Scheduler invokes the Lambda function automatically according to the schedule.
+
+This keeps scheduled background processing separate from the ECS web application.
+
+---
+
+## 20. Lambda IAM Role
+
+The Lambda function used an IAM role named:
+
+`ronin-lambda-weekly-role`
+
+The role was restricted to the AWS resources required by the weekly summary process.
+
+Its permissions included:
+
+- DynamoDB `Scan` against `ronin-analyses`
+- S3 `PutObject` into `ronin-reports/weekly/*`
+- Permission to write Lambda logs to CloudWatch
+
+The Lambda function was not given unrestricted access to DynamoDB or S3.
+
+---
+
+## 21. Lambda IAM Troubleshooting
+
+The first Lambda test failed with an `AccessDenied` error while attempting to access DynamoDB.
+
+The Lambda function had accidentally been configured with an automatically generated execution role rather than the intended:
+
+`ronin-lambda-weekly-role`
+
+The Lambda execution role was corrected.
+
+After changing the role, the Lambda test completed successfully and a weekly report appeared inside:
+
+`ronin-reports/weekly/`
+
+This demonstrated the importance of checking which IAM role a workload is actually using when troubleshooting AWS permission errors.
+
+---
+
+## 22. CloudWatch Logging
+
+Fargate application logs were sent to the CloudWatch log group:
+
+`/ecs/ronin-task`
+
+CloudWatch Logs were particularly useful during the initial failed Fargate deployment.
+
+The logs exposed the Gunicorn port 80 permission error, which allowed the failed ECS deployment to be diagnosed.
+
+Lambda also generated CloudWatch logs for its executions.
+
+An additional issue occurred during the initial ECS deployment because the expected `/ecs/ronin-task` log group did not yet exist.
+
+After the required log group was created, ECS was able to initialise logging correctly and the next application-level error became visible.
+
+---
+
+## 23. Route 53 and the Existing Cloudflare Domain
+
+The parent domain:
+
+`humdaan.co.uk`
+
+is registered and managed through Cloudflare.
+
+Rather than moving the entire domain's DNS infrastructure to Route 53, a dedicated subdomain was delegated:
+
+`ronin.humdaan.co.uk`
+
+NS records were added at the Cloudflare parent DNS level that delegated authority for `ronin.humdaan.co.uk` to an AWS Route 53 public hosted zone.
+
+This allowed the project to demonstrate Route 53 while leaving the existing DNS configuration for the parent domain under Cloudflare.
+
+---
+
+## 24. ACM Certificates
+
+AWS Certificate Manager was used to provide TLS certificates for HTTPS.
+
+CloudFront requires its viewer certificate to exist in the `us-east-1` region.
+
+The CloudFront certificate for:
+
+`ronin.humdaan.co.uk`
+
+was therefore created in:
+
+`us-east-1`
+
+Certificates used by the Application Load Balancer were created in:
+
+`eu-west-2`
+
+This included the certificate used for:
+
+`origin.ronin.humdaan.co.uk`
+
+The certificates were validated using DNS records.
+
+This allowed encrypted HTTPS connections between the user and CloudFront and between CloudFront and the Application Load Balancer.
+
+---
+
+## 25. CloudFront
+
+CloudFront was placed in front of the Application Load Balancer.
+
+The public application domain was:
+
+`https://ronin.humdaan.co.uk`
+
+The CloudFront origin was:
+
+`https://origin.ronin.humdaan.co.uk`
+
+The default CloudFront behaviour had caching disabled because RONIN contains dynamic application and API traffic.
+
+A separate CloudFront behaviour was created for:
+
+`/static/*`
+
+Static content could therefore benefit from CDN caching without incorrectly caching dynamic API responses.
+
+CloudFront was also configured to redirect HTTP viewer requests to HTTPS.
+
+---
+
+## 26. End-to-End HTTPS Test
+
+The final public deployment was tested using:
+
+`curl -i https://ronin.humdaan.co.uk/health`
+
+The response returned:
+
+`HTTP/2 200`
+
+The response headers also contained CloudFront information including:
+
+- `x-cache`
+- `via`
+- `x-amz-cf-pop`
+
+The application returned:
+
+`{"status":"ok"}`
+
+This confirmed that the custom domain, Route 53, CloudFront, HTTPS, Application Load Balancer, ECS Fargate and RONIN health endpoint were working together successfully.
+
+---
+
+## 27. CloudFront Troubleshooting
+
+During the initial CloudFront configuration, requesting:
+
+`https://ronin.humdaan.co.uk/health`
+
+returned an HTTP `504` error.
+
+Direct access to the Application Load Balancer was still working correctly.
+
+This helped isolate the issue to the connection between CloudFront and the ALB rather than the ECS/Fargate application itself.
+
+The CloudFront origin was subsequently configured using:
+
+`origin.ronin.humdaan.co.uk`
+
+with the appropriate ACM certificate and HTTPS origin connection.
+
+After correcting the origin configuration, the public CloudFront request successfully returned HTTP `200`.
+
+---
+
+## 28. Why ECS Fargate Instead of EC2?
+
+ECS Fargate was chosen instead of manually deploying the Docker container onto an EC2 instance.
+
+Using EC2 would require additional management of:
+
+- The operating system
+- OS patching
+- Docker installation and maintenance
+- Instance capacity
+- Instance replacement
+- Server configuration
+
+With Fargate, I define the container requirements while AWS manages the underlying compute infrastructure.
+
+This allows the project to focus more directly on container orchestration, networking, scaling and deployment.
+
+---
+
+## 29. Why ECS Instead of Vercel or Netlify?
+
+RONIN was deliberately deployed using ECS because one of the main purposes of the project is to demonstrate container and cloud infrastructure skills.
+
+A highly managed application hosting platform would hide much of the infrastructure that this project is intended to demonstrate.
+
+Using ECS allowed the project to demonstrate practical knowledge of:
+
+- Docker
+- ECR
+- ECS
+- Fargate
+- VPC networking
+- Public and private subnets
+- Load balancing
+- Health checks
+- IAM roles
+- Auto Scaling
+- CloudWatch
+- HTTPS
+- DNS
+- Infrastructure as Code
+- CI/CD
+
+---
+
+## 30. ClickOps Teardown
+
+Once the deployment was working correctly and the required evidence had been captured, the manually created infrastructure was destroyed.
+
+This was intentional because the next stage of the assignment is to recreate the infrastructure using Terraform.
+
+The manual ClickOps deployment provided a known-working architecture that can now be reproduced using Infrastructure as Code.
+
+Resources removed included:
+
+- CloudFront distribution
+- Route 53 application records
+- ECS Service
+- ECS Cluster
+- ECS task definition revisions
+- Application Load Balancer
+- Target groups
+- EventBridge schedule
+- Lambda function
+- DynamoDB table
+- S3 reports bucket
+- ECR repository
+- CloudWatch log groups
+- VPC Gateway Endpoints
+- NAT Gateways
+- Elastic IP addresses
+- Internet Gateway
+- VPC and associated networking resources
+- RONIN IAM roles
+- ACM certificates
+- ACM validation DNS records
+
+---
+
+## 31. Route 53 Hosted Zone Preserved
+
+One resource was deliberately not destroyed:
+
+`ronin.humdaan.co.uk`
+
+The Route 53 public hosted zone was preserved.
+
+The application records and ACM validation records were removed, leaving the hosted zone's required:
+
+- NS record
+- SOA record
+
+The hosted zone was preserved because Cloudflare already delegates `ronin.humdaan.co.uk` to the Route 53 nameservers assigned to this zone.
+
+Deleting and recreating the hosted zone could result in a new set of Route 53 nameservers and would therefore break the existing Cloudflare delegation until it was manually updated.
+
+The Terraform implementation will need to account for this existing DNS boundary rather than blindly recreating the hosted zone.
+
+---
+
+## 32. Key Troubleshooting and Lessons Learned
+
+Several useful issues were encountered during the manual deployment.
+
+### Fargate Port Permission Error
+
+The first Fargate deployment failed because the non-root `ronin` container user could not bind to privileged port 80.
+
+CloudWatch Logs revealed:
+
+`[Errno 13] Permission denied`
+
+The internal container port was changed to `8080` instead of running the container as root.
+
+### CloudWatch Log Group Error
+
+An initial ECS task also failed during resource initialisation because the expected CloudWatch log group did not exist.
+
+The required log group was created and the task was redeployed.
+
+### Lambda AccessDenied
+
+The Lambda function initially failed to read DynamoDB because it was using the wrong IAM execution role.
+
+The function was changed to use `ronin-lambda-weekly-role`, after which the execution succeeded.
+
+### CloudFront 504
+
+CloudFront initially returned an HTTP `504` even though direct ALB requests worked.
+
+This isolated the problem to the CloudFront-to-ALB origin connection.
+
+The CloudFront origin configuration and HTTPS origin certificate were corrected, after which the public application returned HTTP `200`.
+
+### DNS Delegation
+
+The entire `humdaan.co.uk` domain could not simply be moved to Route 53 while retaining the existing Cloudflare setup.
+
+Instead, `ronin.humdaan.co.uk` was delegated from the Cloudflare-managed parent domain to a Route 53 hosted zone.
+
+This allowed Route 53 to be used specifically for RONIN without disrupting the rest of the domain.
+
+---
+
+## Day 3 Result
+
+By the end of Day 3, RONIN had been successfully deployed as a highly available containerised AWS application using a production-style architecture.
+
+The deployment demonstrated:
+
+- Custom VPC networking
+- Public and private subnet separation
+- Multi-AZ deployment
+- Private Fargate workloads
+- NAT Gateway outbound connectivity
+- S3 and DynamoDB VPC Gateway Endpoints
+- Application Load Balancing
+- Health checking
+- HTTP to HTTPS redirection
+- ECS Service Auto Scaling
+- Least-privilege IAM
+- DynamoDB persistence
+- S3 report storage
+- Scheduled Lambda processing
+- EventBridge Scheduler
+- Centralised CloudWatch logging
+- Route 53 DNS
+- Cloudflare subdomain delegation
+- ACM certificates
+- CloudFront
+- Static asset caching
+- Custom HTTPS domain
+- End-to-end application testing
+- Practical AWS troubleshooting
+- Manual infrastructure teardown
+
+The ClickOps deployment was then destroyed after evidence was captured, leaving the delegated `ronin.humdaan.co.uk` Route 53 hosted zone in place for the next stage.
+
+The next stage is to recreate the infrastructure using modular Terraform with remote state and state locking, followed by automated CI/CD using GitHub Actions and AWS OIDC.
+
+TIME LOG: + 5 & 1/2 hours
 
 
