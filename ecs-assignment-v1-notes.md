@@ -1134,4 +1134,1528 @@ The next stage is to recreate the infrastructure using modular Terraform with re
 
 TIME LOG: + 5 & 1/2 hours
 
+# Day 4 — Terraform Infrastructure as Code
 
+## Objective
+
+The goal of Day 4 was to begin rebuilding the manually created RONIN AWS infrastructure using Terraform.
+
+The ClickOps deployment from Day 3 proved that the architecture worked correctly. After capturing evidence, the manually created resources were destroyed.
+
+The next stage was to reproduce that infrastructure using Infrastructure as Code rather than manually rebuilding everything through the AWS Console.
+
+The main objectives were:
+
+- Structure the Terraform project correctly
+- Use Terraform modules instead of one large configuration
+- Understand Terraform state
+- Configure a remote Terraform backend
+- Use Amazon S3 for remote state
+- Enable Terraform state locking
+- Understand `main.tf`
+- Understand `variables.tf`
+- Understand `outputs.tf`
+- Understand how modules communicate
+- Prepare the infrastructure for automated deployment later through GitHub Actions
+
+---
+
+# 1. What Is Infrastructure as Code?
+
+Infrastructure as Code, or IaC, means defining infrastructure using configuration files rather than manually creating resources through the AWS Console.
+
+Instead of manually creating resources such as:
+
+- VPCs
+- Subnets
+- Route tables
+- NAT Gateways
+- Security groups
+- Load balancers
+- ECS services
+- IAM roles
+- DynamoDB tables
+- S3 buckets
+
+Terraform configuration describes what infrastructure should exist.
+
+Terraform can then communicate with AWS and create those resources.
+
+This makes the infrastructure:
+
+- Repeatable
+- Version controlled
+- Easier to review
+- Easier to reproduce
+- Easier to destroy
+- Suitable for CI/CD automation
+
+If the RONIN infrastructure needs to be recreated later, the same Terraform configuration can be used instead of manually rebuilding everything through ClickOps.
+
+---
+
+# 2. Terraform Configuration
+
+Terraform uses `.tf` configuration files to describe infrastructure.
+
+For example:
+
+```hcl
+resource "aws_vpc" "main" {
+  cidr_block = "10.0.0.0/16"
+}
+```
+
+This tells Terraform that an AWS VPC should exist with the specified CIDR range.
+
+The Terraform configuration represents the infrastructure that I want Terraform to manage.
+
+Terraform can then compare the configuration against the infrastructure it already manages and determine what changes are required.
+
+---
+
+# 3. Terraform State
+
+Terraform needs to keep track of the infrastructure that it manages.
+
+It does this using **Terraform state**.
+
+By default, Terraform can store this information in a file called:
+
+```text
+terraform.tfstate
+```
+
+Terraform state acts as Terraform's persistent record of the infrastructure it manages.
+
+For example, the Terraform configuration may contain a resource called:
+
+```text
+aws_vpc.main
+```
+
+After Terraform creates the VPC, AWS may assign the real resource an ID such as:
+
+```text
+vpc-0123456789
+```
+
+Terraform state records the relationship between:
+
+```text
+aws_vpc.main
+```
+
+and:
+
+```text
+vpc-0123456789
+```
+
+Terraform can therefore remember that this particular AWS VPC belongs to the `aws_vpc.main` resource in the Terraform configuration.
+
+---
+
+# 4. Configuration, State and Real Infrastructure
+
+There are three related but different things to understand.
+
+## Terraform Configuration
+
+The `.tf` files describe what infrastructure I want Terraform to manage.
+
+For example:
+
+```hcl
+resource "aws_vpc" "main" {
+  cidr_block = "10.0.0.0/16"
+}
+```
+
+## Terraform State
+
+Terraform state stores Terraform's persistent knowledge about the resources it manages.
+
+For example:
+
+```text
+aws_vpc.main → vpc-0123456789
+```
+
+## Real Infrastructure
+
+This is what actually exists inside AWS.
+
+Terraform uses the configuration, its state and information retrieved through the AWS provider to determine what changes are required.
+
+This allows Terraform to determine whether resources need to be:
+
+- Created
+- Modified
+- Replaced
+- Destroyed
+- Left unchanged
+
+---
+
+# 5. Terraform Plan
+
+The command:
+
+```bash
+terraform plan
+```
+
+allows Terraform to calculate what infrastructure changes would be required.
+
+Terraform may display actions such as:
+
+```text
++ create
+~ update
+- destroy
+```
+
+A Terraform plan does not normally perform the infrastructure changes.
+
+It allows the proposed changes to be reviewed first.
+
+This is useful because it gives me the opportunity to check what Terraform intends to do before AWS resources are modified.
+
+---
+
+# 6. Terraform Apply
+
+The command:
+
+```bash
+terraform apply
+```
+
+performs the infrastructure changes proposed by Terraform.
+
+For example, Terraform may:
+
+- Create a VPC
+- Create subnets
+- Create an ALB
+- Create ECS resources
+- Modify an existing resource
+- Destroy a resource that is no longer required
+
+After the operation succeeds, Terraform updates its state to reflect the infrastructure it manages.
+
+Terraform therefore does not simply execute every resource from scratch each time.
+
+It understands what it already manages and calculates the changes required.
+
+---
+
+# 7. Terraform Backend
+
+A Terraform **backend** determines where and how Terraform stores and accesses its state.
+
+By default, Terraform can use a local backend.
+
+This means the Terraform state exists on the computer where Terraform is being executed.
+
+For example:
+
+```text
+infra/
+├── main.tf
+├── variables.tf
+├── outputs.tf
+└── terraform.tfstate
+```
+
+In this example, the Terraform state is tied to the local machine.
+
+---
+
+# 8. Problems With Local Terraform State
+
+Local state is acceptable for basic learning, but it creates problems for larger projects and teams.
+
+If the state exists only on one engineer's computer:
+
+- Other engineers do not automatically have the same state
+- CI/CD does not automatically have access to the state
+- Losing the local state file could create infrastructure management problems
+- Multiple copies of the state could exist
+- The infrastructure becomes unnecessarily dependent on one workstation
+
+RONIN will eventually use GitHub Actions to run Terraform.
+
+Therefore, keeping the important Terraform state only on my local computer would not be suitable.
+
+---
+
+# 9. Remote Terraform Backend
+
+A **remote backend** means Terraform state is stored remotely rather than only on the local machine.
+
+For RONIN, Amazon S3 is used for remote Terraform state.
+
+Instead of relying only on:
+
+```text
+./terraform.tfstate
+```
+
+the Terraform state is stored centrally inside an S3 bucket.
+
+This means authorised Terraform processes can access the same state.
+
+For example:
+
+- Terraform running from my computer
+- Terraform running from GitHub Actions
+- Another authorised engineer
+
+can all work against the same central Terraform state.
+
+---
+
+# 10. Why S3 Is Used
+
+Amazon S3 provides durable remote object storage.
+
+A Terraform state file is data that needs to be stored reliably and accessed by Terraform.
+
+A dedicated S3 bucket can therefore be used to store the Terraform state.
+
+Terraform can retrieve the state before performing operations and update it after successful infrastructure changes.
+
+The state bucket is infrastructure used by Terraform itself rather than application storage used by RONIN.
+
+---
+
+# 11. S3 Backend Configuration
+
+A Terraform S3 backend configuration can look similar to:
+
+```hcl
+terraform {
+  backend "s3" {
+    bucket       = "terraform-state-bucket"
+    key          = "ronin/terraform.tfstate"
+    region       = "eu-west-2"
+    use_lockfile = true
+  }
+}
+```
+
+Each value has a particular purpose.
+
+---
+
+# 12. Backend Bucket
+
+The following setting:
+
+```hcl
+bucket = "terraform-state-bucket"
+```
+
+tells Terraform which S3 bucket should contain the Terraform state.
+
+The actual S3 bucket name must be globally unique.
+
+This bucket is specifically used to store Terraform's state rather than RONIN application reports.
+
+---
+
+# 13. Backend Key
+
+The following setting:
+
+```hcl
+key = "ronin/terraform.tfstate"
+```
+
+specifies where the Terraform state should be stored inside the S3 bucket.
+
+For example, the state object could exist at:
+
+```text
+ronin/terraform.tfstate
+```
+
+inside the backend bucket.
+
+---
+
+# 14. Backend Region
+
+The following setting:
+
+```hcl
+region = "eu-west-2"
+```
+
+tells Terraform which AWS region contains the S3 backend bucket.
+
+RONIN primarily uses the London AWS region:
+
+```text
+eu-west-2
+```
+
+---
+
+# 15. Terraform State Locking
+
+Remote state introduces another potential problem.
+
+Two engineers, or an engineer and a CI/CD pipeline, could attempt to modify the same infrastructure at approximately the same time.
+
+For example, one engineer could run:
+
+```bash
+terraform apply
+```
+
+while another Terraform process is also attempting to change the same infrastructure.
+
+This could result in conflicting operations.
+
+Terraform state locking helps prevent this.
+
+When a Terraform operation obtains the state lock, another conflicting operation cannot safely modify that same state until the first operation finishes and releases the lock.
+
+---
+
+# 16. S3 State Locking
+
+RONIN uses native S3 state locking.
+
+This is enabled using:
+
+```hcl
+use_lockfile = true
+```
+
+In simple terms, this tells the S3 backend to use a lock file to coordinate Terraform operations.
+
+If one Terraform process has obtained the state lock, another conflicting Terraform process must wait until the lock is released.
+
+This becomes particularly important when Terraform can be executed from both:
+
+- My local computer
+- GitHub Actions
+
+State locking therefore helps protect the shared Terraform state from conflicting operations.
+
+---
+
+# 17. Why Remote State and Locking Matter for CI/CD
+
+Later in the project, GitHub Actions will run Terraform automatically.
+
+Terraform will therefore no longer run exclusively from my local development environment.
+
+Both my local Terraform installation and GitHub Actions need to understand the same infrastructure.
+
+Using an S3 remote backend provides the shared state.
+
+State locking helps ensure that conflicting Terraform operations do not attempt to modify the shared state simultaneously.
+
+Remote state and locking are therefore important foundations for the later CI/CD implementation.
+
+They are also mandatory requirements of the assignment.
+
+---
+
+# 18. Terraform Modules
+
+The RONIN Terraform configuration is structured using **modules**.
+
+A Terraform module is a collection of Terraform configuration responsible for a particular part of the infrastructure.
+
+Instead of placing every AWS resource inside one very large `main.tf`, the infrastructure can be separated into logical components.
+
+Examples include modules responsible for:
+
+- VPC networking
+- Application Load Balancer
+- ECS
+- IAM
+- ECR
+- Storage
+- Lambda
+- EventBridge
+- ACM
+- DNS
+- CloudFront
+
+This makes the Terraform configuration easier to understand, maintain and reuse.
+
+---
+
+# 19. Root Module
+
+The main Terraform directory is known as the **root module**.
+
+The root module acts as the main orchestration layer.
+
+It calls the child modules and connects them together.
+
+For example:
+
+```hcl
+module "vpc" {
+  source = "./modules/vpc"
+}
+```
+
+This tells Terraform to load a child module from:
+
+```text
+./modules/vpc
+```
+
+The root module can then take information produced by the VPC module and pass that information into another module.
+
+---
+
+# 20. Child Modules
+
+The modules inside the `modules/` directory are child modules.
+
+A simplified structure could look like:
+
+```text
+infra/
+├── main.tf
+├── variables.tf
+├── outputs.tf
+├── providers.tf
+├── versions.tf
+├── backend.tf
+└── modules/
+    ├── vpc/
+    ├── alb/
+    ├── ecs/
+    ├── iam/
+    ├── storage/
+    ├── lambda/
+    └── cloudfront/
+```
+
+Each module focuses on a particular responsibility.
+
+For example:
+
+- VPC module manages networking
+- ALB module manages load balancing
+- ECS module manages container deployment
+- Storage module manages DynamoDB and S3
+- Lambda module manages scheduled background processing
+
+This creates a clear separation of responsibilities.
+
+---
+
+# 21. Typical Files Inside a Module
+
+A Terraform module commonly contains:
+
+```text
+main.tf
+variables.tf
+outputs.tf
+```
+
+These files have different responsibilities.
+
+A useful mental model is:
+
+```text
+variables.tf = information going IN
+
+main.tf = work/resources created
+
+outputs.tf = information coming OUT
+```
+
+---
+
+# 22. main.tf
+
+Inside a child module, `main.tf` normally contains the resources that the module creates.
+
+For example, the VPC module may contain:
+
+```hcl
+resource "aws_vpc" "main" {
+  cidr_block = var.vpc_cidr
+}
+```
+
+This creates an AWS VPC.
+
+Inside the root module, `main.tf` is primarily responsible for calling and connecting the child modules.
+
+For example:
+
+```hcl
+module "vpc" {
+  source = "./modules/vpc"
+}
+```
+
+and:
+
+```hcl
+module "alb" {
+  source = "./modules/alb"
+
+  vpc_id = module.vpc.vpc_id
+}
+```
+
+---
+
+# 23. variables.tf
+
+`variables.tf` defines information that a module expects to receive from outside.
+
+For example:
+
+```hcl
+variable "vpc_id" {
+  description = "ID of the VPC"
+  type        = string
+}
+```
+
+This means the module expects an input called:
+
+```text
+vpc_id
+```
+
+Inside the module, that value can be accessed using:
+
+```hcl
+var.vpc_id
+```
+
+Variables are therefore **inputs into a module**.
+
+The easiest way to remember this is:
+
+```text
+Variables = IN
+```
+
+---
+
+# 24. outputs.tf
+
+`outputs.tf` defines information that a module deliberately makes available outside itself.
+
+For example, the VPC module may create:
+
+```hcl
+resource "aws_vpc" "main" {
+  cidr_block = var.vpc_cidr
+}
+```
+
+After AWS creates the VPC, it assigns the VPC an ID.
+
+Terraform can access that ID using:
+
+```hcl
+aws_vpc.main.id
+```
+
+The VPC module can expose that value using:
+
+```hcl
+output "vpc_id" {
+  description = "ID of the RONIN VPC"
+  value       = aws_vpc.main.id
+}
+```
+
+Outputs are therefore **information coming out of a module**.
+
+The easiest way to remember this is:
+
+```text
+Outputs = OUT
+```
+
+---
+
+# 25. Understanding `aws_vpc.main.id`
+
+Consider:
+
+```hcl
+value = aws_vpc.main.id
+```
+
+This can be broken down into three parts.
+
+```text
+aws_vpc
+```
+
+refers to the Terraform AWS VPC resource type.
+
+```text
+main
+```
+
+is the Terraform name given to that particular resource.
+
+```text
+id
+```
+
+asks Terraform for the ID attribute of that resource.
+
+If AWS created:
+
+```text
+vpc-0123456789
+```
+
+then:
+
+```hcl
+aws_vpc.main.id
+```
+
+would evaluate to that VPC ID.
+
+---
+
+# 26. Understanding the Output Name
+
+Consider:
+
+```hcl
+output "vpc_id" {
+  description = "ID of the RONIN VPC"
+  value       = aws_vpc.main.id
+}
+```
+
+The name:
+
+```text
+vpc_id
+```
+
+is simply the name chosen for the output.
+
+It is not automatically linked to AWS.
+
+The following line determines what the output actually contains:
+
+```hcl
+value = aws_vpc.main.id
+```
+
+If:
+
+```hcl
+aws_vpc.main.id
+```
+
+evaluates to:
+
+```text
+vpc-0123456789
+```
+
+then the module exposes that value under the output name:
+
+```text
+vpc_id
+```
+
+Conceptually:
+
+```text
+vpc_id = vpc-0123456789
+```
+
+---
+
+# 27. Why Outputs Are Needed
+
+A module may create resources that other modules need information about.
+
+For example, the VPC module creates:
+
+- VPC
+- Public subnets
+- Private subnets
+
+The ALB module needs to know:
+
+- Which VPC it belongs to
+- Which public subnets it should use
+
+Instead of making the ALB module depend directly on the internal implementation of the VPC module, the VPC module exposes the required information through outputs.
+
+This creates a clean boundary between the modules.
+
+---
+
+# 28. Passing Information Between Modules
+
+A key Terraform pattern learned during Day 4 was:
+
+1. A module creates a resource.
+2. AWS assigns information to that resource.
+3. The module exposes required information using an output.
+4. The root module accesses that output.
+5. The root module passes the value into another module.
+6. The receiving module accepts it through a variable.
+
+This allows separate Terraform modules to work together without tightly coupling their internal configurations.
+
+---
+
+# 29. VPC to ALB Example
+
+The VPC module contains:
+
+```hcl
+output "vpc_id" {
+  description = "ID of the RONIN VPC"
+  value       = aws_vpc.main.id
+}
+```
+
+The root `main.tf` contains:
+
+```hcl
+module "alb" {
+  source = "./modules/alb"
+
+  vpc_id            = module.vpc.vpc_id
+  public_subnet_ids = module.vpc.public_subnet_ids
+}
+```
+
+The important line is:
+
+```hcl
+vpc_id = module.vpc.vpc_id
+```
+
+---
+
+# 30. Understanding `module.vpc.vpc_id`
+
+The expression:
+
+```hcl
+module.vpc.vpc_id
+```
+
+can be broken down into three parts.
+
+```text
+module
+```
+
+means the value is coming from a Terraform module.
+
+```text
+vpc
+```
+
+refers to the module called `vpc`.
+
+```text
+vpc_id
+```
+
+refers to the output called `vpc_id` exposed by that module.
+
+Therefore:
+
+```hcl
+module.vpc.vpc_id
+```
+
+means:
+
+> Get the `vpc_id` output from the VPC module.
+
+If the VPC module created:
+
+```text
+vpc-0123456789
+```
+
+then:
+
+```hcl
+module.vpc.vpc_id
+```
+
+will provide that value to the root module.
+
+---
+
+# 31. Understanding the Full ALB Assignment
+
+Consider:
+
+```hcl
+vpc_id = module.vpc.vpc_id
+```
+
+The right-hand side:
+
+```hcl
+module.vpc.vpc_id
+```
+
+gets the VPC ID from the VPC module.
+
+The left-hand side:
+
+```hcl
+vpc_id =
+```
+
+passes that value into the ALB module's `vpc_id` input.
+
+The ALB module defines the input using something similar to:
+
+```hcl
+variable "vpc_id" {
+  description = "ID of the VPC"
+  type        = string
+}
+```
+
+The ALB module can then use the value internally with:
+
+```hcl
+var.vpc_id
+```
+
+If the actual VPC ID was:
+
+```text
+vpc-0123456789
+```
+
+then conceptually the ALB module receives:
+
+```text
+vpc_id = vpc-0123456789
+```
+
+---
+
+# 32. Public Subnet IDs Example
+
+The same process is used for:
+
+```hcl
+public_subnet_ids = module.vpc.public_subnet_ids
+```
+
+The VPC module creates the public subnets.
+
+Its `outputs.tf` can expose their IDs:
+
+```hcl
+output "public_subnet_ids" {
+  value = [
+    aws_subnet.public_a.id,
+    aws_subnet.public_b.id
+  ]
+}
+```
+
+The root module accesses the output using:
+
+```hcl
+module.vpc.public_subnet_ids
+```
+
+and passes the result into the ALB module.
+
+The ALB therefore knows which public subnets it should use without hardcoding the subnet IDs.
+
+---
+
+# 33. Module Communication
+
+An important lesson from Day 4 was that modules should not need to directly reach into each other's internal implementation.
+
+Instead, modules communicate through clearly defined inputs and outputs.
+
+For example:
+
+The VPC module creates networking resources.
+
+The VPC module exposes:
+
+- VPC ID
+- Public subnet IDs
+- Private subnet IDs
+
+The root module receives those outputs.
+
+The root module then passes the required values into:
+
+- ALB module
+- ECS module
+- Other modules that need networking information
+
+The root module therefore acts as the connection point between the child modules.
+
+---
+
+# 34. Module Mental Model
+
+A useful way to understand a Terraform module is to compare it to a function.
+
+A function receives inputs, performs work and can return outputs.
+
+A Terraform module works similarly.
+
+For example, a VPC module may receive inputs such as:
+
+- VPC CIDR
+- Subnet CIDRs
+- Availability Zones
+
+It creates resources such as:
+
+- VPC
+- Public subnets
+- Private subnets
+- Route tables
+- NAT Gateways
+
+It can then return outputs such as:
+
+- VPC ID
+- Public subnet IDs
+- Private subnet IDs
+
+Other modules can use those outputs as their own inputs.
+
+---
+
+# 35. Terraform Dependency Awareness
+
+Passing outputs from one module into another also tells Terraform that a dependency exists.
+
+For example:
+
+```hcl
+vpc_id = module.vpc.vpc_id
+```
+
+shows Terraform that the ALB module requires information produced by the VPC module.
+
+Terraform can therefore understand that the required VPC resource must exist before resources that depend on its ID can be fully created.
+
+Terraform uses these references to construct a dependency graph and determine an appropriate resource creation order.
+
+---
+
+# 36. Why Modules Are Better Than One Huge main.tf
+
+It would technically be possible to place the entire RONIN infrastructure inside one enormous `main.tf`.
+
+However, this would become difficult to:
+
+- Read
+- Navigate
+- Troubleshoot
+- Maintain
+- Reuse
+- Explain
+
+Using modules provides:
+
+- Separation of responsibilities
+- Cleaner configuration
+- Easier troubleshooting
+- Reusability
+- Clear dependencies
+- Better project organisation
+
+This is particularly important for RONIN because the final architecture contains many different AWS services.
+
+The assignment also specifically requires Terraform modules rather than one giant Terraform file.
+
+---
+
+# 37. Existing Route 53 Hosted Zone
+
+During the ClickOps teardown, the Route 53 hosted zone for:
+
+```text
+ronin.humdaan.co.uk
+```
+
+was deliberately preserved.
+
+The hosted zone already has AWS Route 53 nameservers assigned to it.
+
+The parent domain:
+
+```text
+humdaan.co.uk
+```
+
+is managed through Cloudflare.
+
+Cloudflare contains NS delegation records that delegate:
+
+```text
+ronin.humdaan.co.uk
+```
+
+to the nameservers assigned to the existing Route 53 hosted zone.
+
+Deleting and recreating the hosted zone could generate a different set of Route 53 nameservers.
+
+The Cloudflare delegation would then point to the old nameservers and DNS would stop working correctly.
+
+The Terraform configuration therefore needs to account for this existing DNS infrastructure rather than blindly creating another hosted zone.
+
+---
+
+# 38. Terraform and Existing Infrastructure
+
+Terraform does not automatically manage every AWS resource that already exists inside an AWS account.
+
+Terraform primarily manages infrastructure represented by its configuration and state.
+
+Existing resources can sometimes be:
+
+- Referenced using Terraform data sources
+- Brought under Terraform management using Terraform import
+
+This distinction is important for RONIN because the Route 53 hosted zone already exists and was intentionally preserved.
+
+The Terraform implementation needs to handle this resource carefully rather than unnecessarily destroying and recreating it.
+
+---
+
+# 39. Planned Terraform Infrastructure
+
+The Terraform implementation will ultimately recreate the architecture previously proven through ClickOps.
+
+This includes:
+
+- Custom VPC
+- Two public subnets
+- Two private application subnets
+- Internet Gateway
+- NAT Gateways
+- Elastic IPs
+- Public route table
+- Private route tables
+- S3 Gateway Endpoint
+- DynamoDB Gateway Endpoint
+- Security groups
+- ECR
+- IAM roles and policies
+- CloudWatch Logs
+- Application Load Balancer
+- Target group
+- HTTP listener
+- HTTPS listener
+- ECS cluster
+- ECS task definition
+- ECS Fargate service
+- ECS Service Auto Scaling
+- DynamoDB
+- S3
+- Lambda
+- EventBridge Scheduler
+- ACM certificates
+- Route 53 application records
+- CloudFront
+
+The purpose is not to invent a new architecture.
+
+Terraform will reproduce the architecture that was already manually deployed, tested and proven during the ClickOps stage.
+
+---
+
+# 40. ECR and ECS Deployment Dependency
+
+There is an important dependency between ECR and ECS.
+
+Terraform can create the ECR repository.
+
+However, ECS requires a valid RONIN container image to exist inside ECR before the Fargate application can successfully start.
+
+Therefore, the deployment needs to account for the order of operations.
+
+The planned process is:
+
+1. Terraform creates foundational infrastructure and ECR.
+2. The RONIN Docker image is built.
+3. The image is pushed into ECR.
+4. Terraform deploys ECS using the available image.
+5. Later, GitHub Actions automates the image build and push process.
+
+This avoids attempting to launch Fargate tasks using an image that does not yet exist.
+
+---
+
+# 41. Terraform Formatting
+
+Terraform provides:
+
+```bash
+terraform fmt
+```
+
+This automatically formats Terraform configuration into Terraform's standard formatting style.
+
+This improves consistency and readability.
+
+It is useful both locally and later inside CI/CD.
+
+---
+
+# 42. Terraform Validation
+
+Terraform provides:
+
+```bash
+terraform validate
+```
+
+This checks whether the Terraform configuration is syntactically valid and internally consistent.
+
+It can identify configuration problems before infrastructure is deployed.
+
+Validation should be performed before applying infrastructure changes.
+
+---
+
+# 43. Terraform Planning
+
+Before deploying infrastructure, Terraform can generate a plan using:
+
+```bash
+terraform plan
+```
+
+The plan should be reviewed carefully.
+
+It shows which resources Terraform intends to:
+
+- Create
+- Modify
+- Replace
+- Destroy
+
+This provides an important safety step before infrastructure changes are made.
+
+---
+
+# 44. Terraform Apply
+
+Once the plan has been reviewed, infrastructure can be deployed using:
+
+```bash
+terraform apply
+```
+
+Terraform performs the required AWS changes.
+
+After a successful deployment, Terraform updates the remote state stored in S3.
+
+The resulting infrastructure can then be tested in the same way as the original ClickOps deployment.
+
+---
+
+# 45. Terraform Destroy
+
+Terraform can remove infrastructure it manages using:
+
+```bash
+terraform destroy
+```
+
+Terraform uses its configuration and state to determine which managed resources should be removed.
+
+The destroy plan should be reviewed before confirming the operation.
+
+This provides a much more consistent teardown process than manually finding and deleting every resource through the AWS Console.
+
+---
+
+# 46. Relationship to CI/CD
+
+The Terraform work prepares RONIN for the CI/CD stage.
+
+Eventually, GitHub Actions will run Terraform against the same remote S3 state.
+
+GitHub Actions will also automate the RONIN application deployment.
+
+The planned automation includes:
+
+- Terraform formatting
+- Terraform validation
+- Terraform planning
+- Terraform deployment
+- Terraform destroy
+- Docker image build
+- Docker image tagging
+- ECR image push
+- ECS deployment
+- Post-deployment health checking
+
+AWS authentication will use GitHub OIDC rather than permanent AWS access keys stored as GitHub secrets.
+
+---
+
+# 47. Why GitHub Actions Needs the Remote State
+
+When Terraform runs from GitHub Actions, it is running on a GitHub-hosted runner rather than my local computer.
+
+That runner does not automatically have my local:
+
+```text
+terraform.tfstate
+```
+
+Using S3 solves this problem.
+
+Both my local Terraform environment and GitHub Actions can access the same remote state.
+
+This ensures that Terraform understands the same RONIN infrastructure regardless of where Terraform is being executed.
+
+State locking then protects that shared state from conflicting operations.
+
+---
+
+# 48. Key Terraform Concepts Learned
+
+## Resource
+
+A Terraform block representing infrastructure Terraform creates or manages.
+
+Example:
+
+```hcl
+resource "aws_vpc" "main" {
+  cidr_block = "10.0.0.0/16"
+}
+```
+
+## Variable
+
+An input into a Terraform configuration or module.
+
+Example:
+
+```hcl
+variable "vpc_id" {
+  type = string
+}
+```
+
+Referenced using:
+
+```hcl
+var.vpc_id
+```
+
+## Output
+
+Information deliberately exposed by a Terraform module.
+
+Example:
+
+```hcl
+output "vpc_id" {
+  value = aws_vpc.main.id
+}
+```
+
+## Module
+
+A collection of Terraform configuration responsible for a particular part of the infrastructure.
+
+## Root Module
+
+The main Terraform configuration that calls and connects the child modules.
+
+## Child Module
+
+A module called by another Terraform module.
+
+## State
+
+Terraform's persistent record of the infrastructure it manages and the mapping between Terraform resource addresses and real infrastructure.
+
+## Backend
+
+Determines where and how Terraform stores and accesses its state.
+
+## Remote Backend
+
+Stores Terraform state remotely rather than only on the local machine.
+
+RONIN uses Amazon S3.
+
+## State Locking
+
+Helps protect shared Terraform state from conflicting concurrent operations.
+
+RONIN uses native S3 locking with:
+
+```hcl
+use_lockfile = true
+```
+
+---
+
+# 49. Most Important Module Pattern
+
+One of the most important Terraform concepts learned during Day 4 was:
+
+```text
+Variables go INTO modules.
+
+Outputs come OUT of modules.
+
+The root module connects them together.
+```
+
+For example, the VPC module creates the VPC.
+
+It exposes:
+
+```hcl
+output "vpc_id" {
+  value = aws_vpc.main.id
+}
+```
+
+The root module accesses:
+
+```hcl
+module.vpc.vpc_id
+```
+
+The root module then passes it into the ALB module:
+
+```hcl
+module "alb" {
+  source = "./modules/alb"
+
+  vpc_id = module.vpc.vpc_id
+}
+```
+
+The ALB module receives the value through:
+
+```hcl
+variable "vpc_id" {
+  type = string
+}
+```
+
+The ALB module can then use:
+
+```hcl
+var.vpc_id
+```
+
+This is the basic pattern used to connect separate Terraform modules together.
+
+---
+
+# 50. Day 4 Key Lessons
+
+The most important lessons from Day 4 were:
+
+- Terraform configuration describes the infrastructure Terraform should manage.
+- Terraform state records Terraform's knowledge of the infrastructure it manages.
+- Terraform state maps Terraform resources to real AWS resources.
+- A backend determines where Terraform state is stored and accessed.
+- Local state exists on the local machine.
+- Remote state is stored centrally.
+- RONIN uses Amazon S3 as the remote backend.
+- State locking protects shared state from conflicting operations.
+- Native S3 locking is enabled using `use_lockfile = true`.
+- Terraform modules separate infrastructure into logical components.
+- The root module connects the child modules.
+- `variables.tf` defines module inputs.
+- `outputs.tf` defines module outputs.
+- `main.tf` contains resources or connects modules depending on where it is used.
+- Outputs allow information created by one module to be used elsewhere.
+- The root module can pass one module's output into another module's variable.
+- Terraform references also help Terraform understand dependencies between resources and modules.
+- Existing infrastructure such as the delegated Route 53 hosted zone must be handled carefully.
+- Remote state is particularly important because GitHub Actions will later run Terraform.
+
+---
+
+# Day 4 Result
+
+By the end of Day 4, the Terraform stage of the RONIN project had established the structure and understanding required to recreate the previously tested ClickOps infrastructure as Infrastructure as Code.
+
+The work covered:
+
+- Infrastructure as Code
+- Terraform configuration
+- Terraform state
+- Terraform plan and apply
+- Terraform backends
+- Local state
+- Remote state
+- Amazon S3 remote backend
+- Terraform state locking
+- Native S3 lock files
+- Modular Terraform
+- Root modules
+- Child modules
+- `main.tf`
+- `variables.tf`
+- `outputs.tf`
+- Module inputs
+- Module outputs
+- Passing values between modules
+- Terraform dependency awareness
+- Existing Route 53 infrastructure
+- ECR/ECS deployment dependencies
+- Terraform formatting
+- Terraform validation
+- Terraform planning
+- Preparation for GitHub Actions CI/CD
+
+The key mental model from Day 4 is:
+
+**Terraform state is Terraform's memory of the infrastructure it manages.**
+
+**The backend determines where that state lives.**
+
+**A remote S3 backend allows that state to be shared centrally.**
+
+**State locking protects the shared state from conflicting Terraform operations.**
+
+**Variables go into modules, outputs come out of modules, and the root module connects those values together.**
+
+The next stage is to complete and deploy the Terraform-managed RONIN infrastructure, verify the application through the custom HTTPS domain, and then automate the deployment using GitHub Actions and AWS OIDC.
+
+TIME LOG: + 3 & 1/2 hours
