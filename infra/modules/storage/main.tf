@@ -14,7 +14,8 @@ resource "aws_dynamodb_table" "analyses" {
 }
 
 resource "aws_s3_bucket" "reports" {
-  bucket = var.reports_bucket_name
+  bucket        = var.reports_bucket_name
+  force_destroy = true
 
   tags = {
     Name = var.reports_bucket_name

@@ -46,3 +46,47 @@ resource "aws_iam_role" "ecs_task" {
     Name = "ronin-ecs-task-role"
   }
 }
+
+resource "aws_iam_role_policy" "ecs_task_storage" {
+  name = "ronin-app-storage-policy"
+  role = aws_iam_role.ecs_task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+
+    Statement = [
+      {
+        Effect = "Allow"
+
+        Action = [
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+          "dynamodb:UpdateItem",
+          "dynamodb:Query",
+          "dynamodb:Scan"
+        ]
+
+        Resource = var.dynamodb_table_arn
+      },
+      {
+        Effect = "Allow"
+
+        Action = [
+          "s3:ListBucket"
+        ]
+
+        Resource = var.reports_bucket_arn
+      },
+      {
+        Effect = "Allow"
+
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject"
+        ]
+
+        Resource = "${var.reports_bucket_arn}/*"
+      }
+    ]
+  })
+}

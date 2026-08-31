@@ -1371,3 +1371,538 @@ The next stage is to complete the remaining Terraform configuration, validate an
 After the Terraform deployment is complete, the project can move into the GitHub Actions and OIDC CI/CD stage.
 
 TIME LOG: + 3 & 1/2 hours
+
+# Day 5 — Terraform Infrastructure as Code (Part 2)
+
+## Overview
+
+Today we completed the remaining Terraform modules from yesterday, deployed the full RONIN infrastructure, and tested the completed architecture end-to-end.
+
+---
+
+# 1. Modules Completed Today
+
+The core Terraform foundation had already been built yesterday, including:
+
+- VPC
+- ALB
+- ECR
+- IAM
+- Storage
+
+Today we completed the remaining modules needed to finish the architecture.
+
+## ACM Module
+
+Created and validated the HTTPS certificates required by RONIN.
+
+Two certificates are used:
+
+```text
+ronin.humdaan.co.uk
+→ CloudFront viewer certificate
+→ us-east-1
+
+origin.ronin.humdaan.co.uk
+→ ALB origin certificate
+→ eu-west-2
+```
+
+Both certificates use Route53 DNS validation.
+
+This gives us:
+
+```text
+User
+  ↓ HTTPS
+CloudFront
+  ↓ HTTPS
+ALB
+```
+
+---
+
+## ECS Module
+
+Completed the ECS/Fargate infrastructure.
+
+Terraform now creates:
+
+```text
+ronin-cluster
+    ↓
+ronin-service
+    ├── Fargate Task
+    └── Fargate Task
+```
+
+Configuration:
+
+```text
+Desired tasks: 2
+Minimum tasks: 2
+Maximum tasks: 4
+CPU scaling target: 70%
+Container port: 8080
+Public IP: Disabled
+```
+
+The Fargate tasks run inside the private subnets.
+
+The ECS security group only allows port `8080` from the ALB security group.
+
+CloudWatch logging was also configured:
+
+```text
+/ecs/ronin-task
+Retention: 7 days
+```
+
+---
+
+## CloudFront Module
+
+Added CloudFront in front of the ALB.
+
+The public domain is:
+
+```text
+ronin.humdaan.co.uk
+```
+
+CloudFront uses:
+
+```text
+origin.ronin.humdaan.co.uk
+```
+
+as its origin, which points to the ALB.
+
+Dynamic application traffic has caching disabled.
+
+Static content:
+
+```text
+/static/*
+```
+
+uses CloudFront's optimised caching policy.
+
+The request path is therefore:
+
+```text
+User
+ ↓
+CloudFront
+ ↓ HTTPS
+ALB
+ ↓
+Fargate
+```
+
+---
+
+## Route53 Module
+
+Completed the DNS records required for the application.
+
+Terraform creates:
+
+```text
+ronin.humdaan.co.uk
+→ CloudFront
+```
+
+and:
+
+```text
+origin.ronin.humdaan.co.uk
+→ ALB
+```
+
+The existing `ronin.humdaan.co.uk` Route53 hosted zone remains separate and is read by Terraform as a data source rather than created by Terraform.
+
+---
+
+## Lambda Module
+
+Created:
+
+```text
+ronin-weekly-summary
+```
+
+The Lambda function reads analysis information from DynamoDB and generates a weekly summary.
+
+The report is written to:
+
+```text
+s3://ronin-reports/weekly/YYYY-MM-DD/summary.json
+```
+
+The Lambda has its own limited IAM permissions for:
+
+```text
+DynamoDB Scan
+S3 PutObject
+CloudWatch Logs
+```
+
+---
+
+## EventBridge Scheduler
+
+Added the automatic schedule for the weekly Lambda.
+
+Schedule:
+
+```text
+Every Sunday
+09:00
+Europe/London
+```
+
+Flow:
+
+```text
+EventBridge Scheduler
+        ↓
+Lambda
+        ↓
+DynamoDB
+        ↓
+Weekly summary
+        ↓
+S3
+```
+
+---
+
+# 2. Full Terraform Architecture Completed
+
+With today's modules added to yesterday's modules, the complete application path became:
+
+```text
+Route53
+   ↓
+CloudFront
+   ↓ HTTPS
+ALB
+   ↓
+Target Group
+   ↓
+ECS Fargate
+   ├── Task 1
+   └── Task 2
+        ↓
+RONIN
+   ├── DynamoDB
+   └── S3
+```
+
+The scheduled reporting path is:
+
+```text
+EventBridge Scheduler
+        ↓
+Lambda
+        ↓
+DynamoDB
+        ↓
+S3 Weekly Report
+```
+
+---
+
+# 3. Terraform Deployment
+
+The completed Terraform infrastructure was deployed successfully.
+
+We initially had to create ECR first so that the existing `ronin:v3` Docker image could be pushed before ECS attempted to start its tasks.
+
+After the image was available, the full infrastructure was deployed.
+
+We encountered one CloudFront issue caused by an incorrect AWS-managed `CachingDisabled` policy ID.
+
+The correct policy was:
+
+```text
+Managed-CachingDisabled
+4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+```
+
+After correcting this, the Terraform deployment completed successfully.
+
+---
+
+# 4. ECS Tests
+
+We checked the ECS service after deployment.
+
+Result:
+
+```text
+Status: ACTIVE
+Desired: 2
+Running: 2
+Pending: 0
+```
+
+This confirmed both Fargate tasks successfully started and remained running.
+
+---
+
+# 5. ALB Health Test
+
+The ALB target group was checked.
+
+Two Fargate targets were registered:
+
+```text
+10.0.11.37:8080
+10.0.12.227:8080
+```
+
+Both returned:
+
+```text
+healthy
+```
+
+This confirmed:
+
+```text
+ALB
+ ↓
+Target Group
+ ↓
+Fargate :8080
+ ↓
+/health
+```
+
+was working correctly.
+
+---
+
+# 6. Public HTTPS Test
+
+The public application was tested using:
+
+```bash
+curl -i https://ronin.humdaan.co.uk/health
+```
+
+Result:
+
+```text
+HTTP/2 200
+```
+
+Response:
+
+```json
+{"status":"ok"}
+```
+
+CloudFront headers were also returned, confirming the request was passing through CloudFront.
+
+This verified the complete public path:
+
+```text
+ronin.humdaan.co.uk
+ ↓
+Route53
+ ↓
+CloudFront
+ ↓
+ALB
+ ↓
+Fargate
+ ↓
+RONIN
+```
+
+---
+
+# 7. RONIN Analysis Test
+
+We tested the actual application endpoint:
+
+```bash
+curl -i -X POST https://ronin.humdaan.co.uk/api/analyse
+```
+
+Result:
+
+```text
+HTTP/2 201
+```
+
+RONIN processed:
+
+```text
+20 demo resources
+```
+
+and generated:
+
+```text
+4 findings
+```
+
+The analysis completed successfully and returned:
+
+```text
+saved: true
+```
+
+---
+
+# 8. DynamoDB Test
+
+We checked the `ronin-analyses` DynamoDB table after running the analysis.
+
+The generated analysis record existed with:
+
+```text
+Analysis ID: analysis-59c903fa
+Resources checked: 20
+Findings: 4
+Status: completed
+```
+
+This confirmed:
+
+```text
+Fargate
+ ↓
+ECS Task Role
+ ↓
+DynamoDB
+```
+
+was working correctly.
+
+---
+
+# 9. S3 Test
+
+We checked the `ronin-reports` S3 bucket.
+
+The generated report existed at:
+
+```text
+analyses/analysis-59c903fa.json
+```
+
+This matched the analysis stored in DynamoDB.
+
+This confirmed:
+
+```text
+RONIN
+ ↓
+S3
+ ↓
+Analysis JSON
+```
+
+was working correctly.
+
+---
+
+# 10. Lambda Test
+
+The weekly-summary Lambda was manually invoked.
+
+Result:
+
+```text
+StatusCode: 200
+```
+
+The Lambda returned:
+
+```json
+{
+  "statusCode": 200,
+  "report_key": "weekly/2026-08-31/summary.json",
+  "analysis_count": 1
+}
+```
+
+We then checked S3 and confirmed the weekly report existed:
+
+```text
+weekly/2026-08-31/summary.json
+```
+
+This verified:
+
+```text
+Lambda
+ ↓
+DynamoDB
+ ↓
+Generate Summary
+ ↓
+S3
+```
+
+---
+
+# 11. EventBridge Test
+
+The EventBridge Scheduler configuration was checked.
+
+Result:
+
+```text
+State: ENABLED
+Schedule: cron(0 9 ? * SUN *)
+Timezone: Europe/London
+Target: ronin-weekly-summary
+```
+
+This confirmed the Lambda is scheduled to run automatically every Sunday at 09:00.
+
+---
+
+# 12. Day 5 Result
+
+By the end of today, all remaining Terraform modules were completed and the full infrastructure was successfully tested.
+
+The main application flow was verified:
+
+```text
+Route53
+ ↓
+CloudFront
+ ↓
+ALB
+ ↓
+ECS Fargate
+ ↓
+RONIN
+ ├── DynamoDB
+ └── S3
+```
+
+The automated reporting flow was also verified:
+
+```text
+EventBridge
+ ↓
+Lambda
+ ↓
+DynamoDB
+ ↓
+S3
+```
+
+The full Terraform environment was then destroyed after testing and evidence was captured, so the AWS resources do not need to remain running while the next stage is developed.
+
+TIME LOG: + 4 hours
+
+
