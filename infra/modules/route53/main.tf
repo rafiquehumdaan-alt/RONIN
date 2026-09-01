@@ -12,7 +12,7 @@ resource "aws_route53_record" "origin" {
 
 resource "aws_route53_record" "app" {
   zone_id = var.zone_id
-  name    = "ronin.humdaan.co.uk"
+  name    = var.domain_name
   type    = "A"
 
   alias {

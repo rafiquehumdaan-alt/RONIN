@@ -1,3 +1,7 @@
+data "aws_ecr_repository" "ronin" {
+  name = "ronin"
+}
+
 data "aws_route53_zone" "ronin" {
   name         = "ronin.humdaan.co.uk"
   private_zone = false
@@ -17,10 +21,6 @@ module "vpc" {
   availability_zone_b = "eu-west-2b"
 }
 
-data "aws_ecr_repository" "ronin" {
-  name = "ronin"
-}
-
 module "storage" {
   source = "./modules/storage"
 
@@ -35,12 +35,45 @@ module "iam" {
   reports_bucket_arn = module.storage.reports_bucket_arn
 }
 
+module "acm" {
+  source = "./modules/acm"
+
+  providers = {
+    aws           = aws
+    aws.us_east_1 = aws.us_east_1
+  }
+
+  domain_name        = "ronin.humdaan.co.uk"
+  origin_domain_name = "origin.ronin.humdaan.co.uk"
+  route53_zone_id    = data.aws_route53_zone.ronin.zone_id
+}
+
 module "alb" {
   source = "./modules/alb"
 
   vpc_id            = module.vpc.vpc_id
   public_subnet_ids = module.vpc.public_subnet_ids
   certificate_arn   = module.acm.origin_certificate_arn
+}
+
+module "cloudfront" {
+  source = "./modules/cloudfront"
+
+  domain_name            = "ronin.humdaan.co.uk"
+  origin_domain_name     = "origin.ronin.humdaan.co.uk"
+  viewer_certificate_arn = module.acm.viewer_certificate_arn
+}
+
+module "route53" {
+  source = "./modules/route53"
+
+  zone_id                = data.aws_route53_zone.ronin.zone_id
+  domain_name            = "ronin.humdaan.co.uk"
+  origin_domain_name     = "origin.ronin.humdaan.co.uk"
+  alb_dns_name           = module.alb.alb_dns_name
+  alb_zone_id            = module.alb.alb_zone_id
+  cloudfront_domain_name = module.cloudfront.domain_name
+  cloudfront_zone_id     = module.cloudfront.hosted_zone_id
 }
 
 module "ecs" {
@@ -59,40 +92,6 @@ module "ecs" {
 
   dynamodb_table_name = module.storage.dynamodb_table_name
   reports_bucket_name = module.storage.reports_bucket_name
-}
-
-module "acm" {
-  source = "./modules/acm"
-
-  providers = {
-    aws           = aws
-    aws.us_east_1 = aws.us_east_1
-  }
-
-  domain_name        = "ronin.humdaan.co.uk"
-  origin_domain_name = "origin.ronin.humdaan.co.uk"
-  route53_zone_id    = data.aws_route53_zone.ronin.zone_id
-}
-
-module "route53" {
-  source = "./modules/route53"
-
-  zone_id            = data.aws_route53_zone.ronin.zone_id
-  origin_domain_name = "origin.ronin.humdaan.co.uk"
-
-  alb_dns_name = module.alb.alb_dns_name
-  alb_zone_id  = module.alb.alb_zone_id
-
-  cloudfront_domain_name = module.cloudfront.domain_name
-  cloudfront_zone_id     = module.cloudfront.hosted_zone_id
-}
-
-module "cloudfront" {
-  source = "./modules/cloudfront"
-
-  domain_name            = "ronin.humdaan.co.uk"
-  origin_domain_name     = "origin.ronin.humdaan.co.uk"
-  viewer_certificate_arn = module.acm.viewer_certificate_arn
 }
 
 module "lambda" {

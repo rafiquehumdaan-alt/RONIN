@@ -1,5 +1,10 @@
 variable "zone_id" {
-  description = "ID of the existing RONIN Route 53 hosted zone"
+  description = "ID of the RONIN Route 53 hosted zone"
+  type        = string
+}
+
+variable "domain_name" {
+  description = "Public domain name for RONIN"
   type        = string
 }
 
