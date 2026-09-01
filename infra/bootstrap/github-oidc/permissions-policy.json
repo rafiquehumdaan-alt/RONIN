@@ -110,6 +110,7 @@
         "iam:UntagRole",
         "iam:ListRolePolicies",
         "iam:ListAttachedRolePolicies",
+        "iam:ListInstanceProfilesForRole",
         "iam:GetRolePolicy",
         "iam:PutRolePolicy",
         "iam:DeleteRolePolicy",
