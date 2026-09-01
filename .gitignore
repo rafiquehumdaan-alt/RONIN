@@ -36,4 +36,4 @@ override.tf.json
 
 # Terraform CLI configuration
 .terraformrc
-terraform.rc
+terraform.rc*:Zone.Identifier
