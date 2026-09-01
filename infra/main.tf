@@ -17,10 +17,8 @@ module "vpc" {
   availability_zone_b = "eu-west-2b"
 }
 
-module "ecr" {
-  source = "./modules/ecr"
-
-  repository_name = "ronin"
+data "aws_ecr_repository" "ronin" {
+  name = "ronin"
 }
 
 module "storage" {
@@ -53,7 +51,7 @@ module "ecs" {
   alb_security_group_id = module.alb.security_group_id
   target_group_arn      = module.alb.target_group_arn
 
-  ecr_repository_url = module.ecr.repository_url
+  ecr_repository_url = data.aws_ecr_repository.ronin.repository_url
   image_tag          = var.image_tag
 
   ecs_execution_role_arn = module.iam.ecs_execution_role_arn
