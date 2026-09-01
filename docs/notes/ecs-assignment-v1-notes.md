@@ -1906,3 +1906,467 @@ The full Terraform environment was then destroyed after testing and evidence was
 TIME LOG: + 4 hours
 
 
+# Day 6 — CI/CD Automation
+
+## Objective
+
+Set up the CI/CD process for RONIN using GitHub Actions so application images and Terraform infrastructure can be tested, planned, deployed, verified, and destroyed in a controlled way.
+
+---
+
+## GitHub Actions and AWS OIDC
+
+GitHub Actions authenticates to AWS using **OIDC (OpenID Connect)** rather than permanent AWS access keys.
+
+```text
+GitHub Actions
+      ↓
+OIDC Token
+      ↓
+AWS IAM Role
+      ↓
+Temporary AWS Credentials
+```
+
+AWS IAM role:
+
+```text
+ronin-github-actions
+```
+
+The GitHub workflows require:
+
+```yaml
+permissions:
+  id-token: write
+  contents: read
+```
+
+`id-token: write` allows GitHub to request an OIDC token and exchange it for temporary AWS credentials.
+
+This avoids storing long-lived AWS access keys inside GitHub.
+
+---
+
+## CI/CD Workflows
+
+Four main GitHub Actions workflows were created:
+
+```text
+.github/workflows/
+
+├── app-deploy.yml
+├── terraform-plan.yml
+├── terraform-deploy.yml
+└── terraform-destroy.yml
+```
+
+They deliberately separate application deployment from infrastructure deployment.
+
+---
+
+## 1. App Deploy Workflow
+
+The App Deploy workflow handles the application/container side of RONIN.
+
+```text
+Application Code
+      ↓
+Run Tests
+      ↓
+Authenticate to AWS via OIDC
+      ↓
+Build Docker Image
+      ↓
+Login to ECR
+      ↓
+Tag Image
+      ↓
+Push Image to ECR
+```
+
+The tests run before the Docker image is pushed.
+
+If the tests fail, the deployment pipeline fails.
+
+### Docker Image Tags
+
+Images are tagged with the Git commit SHA:
+
+```text
+ronin:<commit-sha>
+```
+
+and also:
+
+```text
+ronin:latest
+```
+
+This gives two useful options:
+
+```text
+Commit SHA → exact, traceable application version
+latest     → most recently built version
+```
+
+ECR therefore contains versioned images that can be traced back to specific Git commits.
+
+---
+
+## 2. Terraform Plan Workflow
+
+The Terraform Plan workflow checks infrastructure changes before deployment.
+
+```text
+Git Push
+    ↓
+Checkout Repository
+    ↓
+Authenticate to AWS via OIDC
+    ↓
+Terraform Setup
+    ↓
+terraform fmt -check
+    ↓
+terraform init
+    ↓
+terraform validate
+    ↓
+terraform plan
+```
+
+It automatically runs when relevant Terraform files are pushed to `main`.
+
+The workflow **does not automatically apply the infrastructure**.
+
+This provides a review point before AWS resources are created or modified.
+
+---
+
+## 3. Terraform Deploy Workflow
+
+Infrastructure deployment is deliberately manual using:
+
+```text
+workflow_dispatch
+```
+
+This prevents a normal Git push from automatically launching chargeable AWS infrastructure.
+
+The deployment workflow performs:
+
+```text
+Manual Trigger
+      ↓
+OIDC Authentication
+      ↓
+Terraform Init
+      ↓
+Terraform Format / Validation
+      ↓
+Terraform Plan
+      ↓
+Terraform Apply
+      ↓
+Wait for ECS Service Stability
+      ↓
+HTTPS Health Check
+```
+
+The workflow supports an `image_tag`.
+
+Default:
+
+```text
+latest
+```
+
+A specific Git commit SHA can also be supplied when an exact application version needs to be deployed.
+
+---
+
+## 4. ECS Deployment Verification
+
+A successful `terraform apply` does not necessarily mean the application itself is working.
+
+After deployment, GitHub Actions waits for the ECS service to become stable:
+
+```text
+Terraform Apply
+      ↓
+ECS Creates Fargate Tasks
+      ↓
+Tasks Start RONIN Container
+      ↓
+ALB Health Checks
+      ↓
+Targets Become Healthy
+      ↓
+ECS Service Stable
+```
+
+This verifies that ECS successfully launched the application tasks.
+
+---
+
+## 5. Post-Deployment Health Check
+
+The deployment pipeline then performs a request against:
+
+```text
+https://ronin.humdaan.co.uk/health
+```
+
+Expected response:
+
+```json
+{"status":"ok"}
+```
+
+This provides an end-to-end deployment check:
+
+```text
+Internet
+   ↓
+DNS
+   ↓
+CloudFront
+   ↓
+HTTPS
+   ↓
+ALB
+   ↓
+ECS Fargate
+   ↓
+RONIN
+   ↓
+/health
+```
+
+Therefore the deployment is only considered successful when the actual application can respond successfully over HTTPS.
+
+---
+
+## 6. Terraform Destroy Workflow
+
+A separate manual workflow handles infrastructure destruction.
+
+```text
+Terraform Destroy
+      ↓
+Confirmation Required
+      ↓
+terraform destroy
+```
+
+The user must explicitly enter:
+
+```text
+destroy
+```
+
+before the workflow proceeds.
+
+This protects the environment from accidental destruction.
+
+---
+
+## Terraform Remote State
+
+The main Terraform environment uses an S3 backend:
+
+```text
+Terraform
+    ↓
+S3 Backend
+    ↓
+ronin/terraform.tfstate
+```
+
+The Terraform state bucket uses:
+
+- Versioning
+- Server-side encryption
+- Public access blocking
+- Native S3 state locking
+
+Remote state is particularly important for CI/CD because GitHub Actions runners are temporary.
+
+Without remote state, each new runner would not reliably know what infrastructure Terraform already manages.
+
+---
+
+## Bootstrap Infrastructure
+
+A small Terraform bootstrap layer exists before the main Terraform deployment.
+
+Its purpose is to create resources required before the normal deployment can operate.
+
+The bootstrap currently handles:
+
+```text
+Bootstrap Terraform
+├── Terraform State S3 Bucket
+├── ECR Repository
+└── Route 53 Hosted Zone
+```
+
+ECR must exist before the App Deploy workflow can push the Docker image.
+
+The S3 backend must exist before the main Terraform configuration can initialise its remote state.
+
+---
+
+## Complete Deployment Flow
+
+The completed deployment process is:
+
+```text
+Bootstrap Terraform
+      ↓
+S3 Backend + ECR + DNS Foundation
+      ↓
+App Deploy Workflow
+      ↓
+Tests
+      ↓
+Docker Build
+      ↓
+Push SHA + latest → ECR
+      ↓
+Terraform Plan Workflow
+      ↓
+Review Infrastructure Changes
+      ↓
+Terraform Deploy Workflow
+      ↓
+Terraform Apply
+      ↓
+ECS Service Stable
+      ↓
+HTTPS /health Check
+      ↓
+RONIN LIVE
+```
+
+Application and infrastructure responsibilities are therefore separated:
+
+```text
+App Pipeline
+    → Tests
+    → Docker
+    → ECR
+
+Infrastructure Pipeline
+    → Terraform
+    → AWS Resources
+    → ECS Deployment
+    → Health Verification
+```
+
+---
+
+## Complete Destruction Flow
+
+The main infrastructure is destroyed first:
+
+```text
+Terraform Destroy Workflow
+        ↓
+Main RONIN Infrastructure Removed
+```
+
+Bootstrap resources can then be destroyed separately.
+
+This ordering is important because the main Terraform state is stored inside the bootstrap-created S3 backend.
+
+```text
+Main Infrastructure
+        ↓
+Destroy First
+        ↓
+Bootstrap Infrastructure
+        ↓
+Destroy Last
+```
+
+---
+
+## CI/CD Security
+
+Important security decisions:
+
+```text
+No permanent AWS access keys in GitHub
+        ↓
+GitHub OIDC
+        ↓
+AWS IAM Role
+        ↓
+Temporary Credentials
+```
+
+The AWS IAM trust policy restricts which GitHub repository/branch can assume the role.
+
+Application containers also continue to use separate ECS execution and task roles rather than embedding AWS credentials in the image.
+
+---
+
+## Final CI/CD Model
+
+```text
+                         GitHub
+                            │
+              ┌─────────────┴─────────────┐
+              │                           │
+         App Changes                 Infra Changes
+              │                           │
+              ▼                           ▼
+         App Deploy                 Terraform Plan
+              │                           │
+        Tests + Docker                   Review
+              │                           │
+              ▼                           ▼
+             ECR                  Terraform Deploy
+                                          │
+                                          ▼
+                                  AWS Infrastructure
+                                          │
+                                          ▼
+                                     ECS Stable
+                                          │
+                                          ▼
+                                    HTTPS /health
+                                          │
+                                          ▼
+                                        PASS
+```
+
+---
+
+## End-of-Day Result
+
+The CI/CD implementation was successfully tested.
+
+The following workflows successfully ran:
+
+```text
+App Deploy        ✓
+Terraform Plan    ✓
+Terraform Deploy  ✓
+```
+
+The application successfully deployed through the automated pipeline and the infrastructure could be recreated from Terraform.
+
+This completed the core RONIN project deployment and CI/CD requirements.
+
+After confirming that the project worked end-to-end, additional time was spent experimenting with ways to improve the infrastructure design and make future RONIN deployments easier and more reproducible.
+
+This included reorganising some Terraform responsibilities, improving the bootstrap structure, and experimenting with automating external DNS delegation.
+
+These were **post-project optimisation/refactoring experiments**, rather than requirements needed to make the original RONIN deployment work.
+
+---
+
+TIME LOG: + 7 hours
