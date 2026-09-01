@@ -1,0 +1,80 @@
+name: Terraform Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "ECR image tag to deploy"
+        required: false
+        default: "latest"
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: eu-west-2
+  TF_IN_AUTOMATION: true
+
+jobs:
+  terraform-deploy:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: infra
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: arn:aws:iam::435059220418:role/ronin-github-actions
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Check Terraform formatting
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: |
+          terraform plan \
+            -input=false \
+            -var="image_tag=${{ inputs.image_tag }}" \
+            -out=tfplan
+
+      - name: Terraform Apply
+        run: terraform apply -input=false -auto-approve tfplan
+
+      - name: Wait for ECS service
+        run: |
+          aws ecs wait services-stable \
+            --cluster ronin-cluster \
+            --services ronin-service \
+            --region "$AWS_REGION"
+
+      - name: Verify deployment health
+        run: |
+          for attempt in {1..12}; do
+            if curl --fail --silent --show-error \
+              https://ronin.humdaan.co.uk/health | grep -q '"status":"ok"'; then
+              echo "RONIN health check passed."
+              exit 0
+            fi
+
+            echo "Health check attempt $attempt failed. Retrying in 15 seconds..."
+            sleep 15
+          done
+
+          echo "RONIN deployment failed health check."
+          exit 1
