@@ -1,17 +1,121 @@
-# ECS Assignment (AWS)
+# RONIN
 
-This assignment focuses on building, containerising and deploying a custom application to AWS using technologies including Docker, Amazon ECR, ECS Fargate, Terraform and CI/CD.
+RONIN is a small Flask application built for an AWS DevOps portfolio project. It uses safe demo data to identify possible AWS infrastructure issues, underused resources and optimisation opportunities without connecting to a real customer account.
 
-## RONIN
+The project demonstrates how an application can be tested, containerised, deployed and removed using Docker, Terraform, AWS and GitHub Actions.
 
-For this assignment, I chose the **BYO (Build Your Own) application** option and created an application called **RONIN** specifically for the project.
+## App Demo
 
-RONIN is a lightweight cloud infrastructure companion that uses demo AWS resource data to identify potential infrastructure issues, underutilised resources and optimisation opportunities. The assignment version is intentionally a safe demonstration and does not require users to connect a real AWS account.
+The deployed application is served securely at `https://ronin.humdaan.co.uk` through CloudFront, with HTTPS visible in the browser.
 
-## Assignment Documentation
+![RONIN application running over HTTPS](docs/evidence/application/webapp-ui-https.png)
 
-The assignment has been documented throughout the project in a **diary-style format**, covering the work completed, commands used, testing, infrastructure decisions and reasoning behind the implementation.
+The interface lets a user analyse the demo environment, review findings and generate a report.
 
-All detailed information about this assignment can be found in:
+## Local Setup
 
-[**RONIN – `ecs-assignment-v1-notes.md`**](https://github.com/rafiquehumdaan-alt/RONIN/blob/main/ecs-assignment-v1-notes.md)
+### Requirements
+
+- Docker
+- Git
+
+### Run with Docker
+
+```bash
+git clone https://github.com/rafiquehumdaan-alt/RONIN.git
+cd RONIN
+docker build -t ronin:local .
+docker run --rm -p 8080:8080 ronin:local
+```
+
+Open [http://localhost:8080](http://localhost:8080) in a browser. Stop the application with `Ctrl+C`.
+
+![RONIN running locally with Docker](docs/evidence/application/local-host-app-demo.png)
+
+### Run the tests
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-dev.txt
+PYTHONPATH=. pytest -q
+```
+
+## Architecture
+
+RONIN runs in AWS across two Availability Zones. Cloudflare delegates the RONIN subdomain to Route 53, and user traffic travels through CloudFront and an Application Load Balancer to ECS Fargate tasks in private subnets. ECR stores the container image, while DynamoDB, S3, Lambda and EventBridge support application data and weekly reports.
+
+[Open the full-size architecture diagram](docs/architecture/ronin-aws-architecture-v2.png)
+
+[![RONIN AWS architecture](docs/architecture/ronin-aws-architecture-v2.png)](docs/architecture/ronin-aws-architecture-v2.png)
+
+Terraform is separated into three small stages because each stage provides something required by the next:
+
+1. **Bootstrap** uses local state to create the remote state bucket and GitHub OIDC access.
+2. **Foundation** creates ECR, the Route 53 hosted zone and Cloudflare delegation.
+3. **Main** creates the VPC, certificates, CloudFront, ALB, ECS, storage and reporting resources.
+
+## Project Structure
+
+```text
+RONIN/
+├── app/                    # Flask application
+├── tests/                  # Automated tests
+├── infra/
+│   ├── bootstrap/          # State bucket and GitHub AWS access
+│   ├── foundation/         # ECR and DNS foundation
+│   └── modules/            # Main reusable AWS components
+├── .github/workflows/      # Build, deployment and destruction pipelines
+├── docs/
+│   ├── architecture/       # Architecture diagram and reasoning
+│   └── evidence/           # Application, AWS and pipeline screenshots
+├── Dockerfile              # Production container image
+└── run.py                  # Application entry point
+```
+
+## CI/CD Pipelines
+
+GitHub Actions connects to AWS through OIDC, so long-lived AWS access keys are not stored in GitHub.
+
+- **App Deploy** runs the tests, builds the Docker image and pushes SHA and `latest` tags to ECR.
+- **Infrastructure** checks the Terraform code and can plan or apply Foundation and Main in order.
+- **Destroy Infrastructure** safely removes Main first and Foundation second after typed confirmation.
+
+### App build and deployment
+
+![Successful App Deploy pipeline](docs/evidence/pipelines/app-deploy-pipeline-success.png)
+
+### Foundation deployment
+
+![Successful Foundation infrastructure pipeline](docs/evidence/pipelines/deploy-foundation-infra-pipeline-success.png)
+
+### Main infrastructure deployment
+
+![Successful Main infrastructure pipeline](docs/evidence/pipelines/deploy-main-infra-pipeline-success.png)
+
+### Main infrastructure destruction
+
+![Successful Main destruction pipeline](docs/evidence/pipelines/destroy-main-infra-pipeline-success.png)
+
+### Foundation destruction
+
+![Successful Foundation destruction pipeline](docs/evidence/pipelines/destroy-foundation-infra-pipeline-success.png)
+
+## Deploying from Zero
+
+The full environment is created in this order:
+
+1. Run `terraform init` and `terraform apply` locally in `infra/bootstrap`.
+2. Run the **Infrastructure** workflow for `foundation` with the `apply` action.
+3. Run the **App Deploy** workflow to build and push the image to ECR.
+4. Run the **Infrastructure** workflow for `main` with the `apply` action.
+
+The Cloudflare API token is stored as the GitHub secret `CLOUDFLARE_API_TOKEN`, and the Cloudflare zone ID is stored as the repository variable `CLOUDFLARE_ZONE_ID`.
+
+To return to zero infrastructure, run the destroy workflow for **Main**, then **Foundation**, and finally run `terraform destroy` locally in `infra/bootstrap`.
+
+## Main Technologies
+
+Python, Flask, Docker, Terraform, AWS ECS Fargate, ECR, VPC, ALB, CloudFront, Route 53, ACM, DynamoDB, S3, Lambda, EventBridge, CloudWatch, Cloudflare and GitHub Actions.
+
+## TIME LOG: 31 HOURS
