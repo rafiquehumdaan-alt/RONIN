@@ -1,4 +1,16 @@
+# Entry point for running RONIN locally, creating the Flask application and starting it on the configured port.
+
 import os
+
 from app import create_app
-app=create_app()
-if __name__=="__main__": app.run(host="0.0.0.0",port=int(os.getenv("PORT","80")),debug=False)
+
+
+app = create_app()
+
+
+if __name__ == "__main__":
+    app.run(
+        host="0.0.0.0",
+        port=int(os.getenv("PORT", "80")),
+        debug=False,
+    )

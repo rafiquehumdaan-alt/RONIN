@@ -5,16 +5,22 @@
 # Python
 .venv
 __pycache__
-*.pyc
+*.py[cod]
 .pytest_cache
 
 # Tests
 tests
 
-# Project files not required in container
-reference
-README.md
-ecs-assignment-v1-notes.md
-
 # Terraform infrastructure
 infra
+
+# Documentation and project files
+docs
+README.md
+
+# Local environment files
+.env
+.env.*
+
+# OS / Windows metadata
+*:Zone.Identifier
