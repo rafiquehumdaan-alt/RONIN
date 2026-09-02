@@ -3,14 +3,14 @@
 
 # Python cache
 __pycache__/
-*.pyc
+*.py[cod]
 .pytest_cache/
 
 # Environment files
 .env
 .env.*
 
-# Terraform working directory
+# Terraform working directories
 **/.terraform/*
 
 # Terraform state
@@ -36,5 +36,10 @@ override.tf.json
 
 # Terraform CLI configuration
 .terraformrc
-terraform.rc*:Zone.Identifier
-*.tfvars
+terraform.rc
+
+# Generated Lambda deployment package
+infra/modules/lambda/lambda_function.zip
+
+# Windows metadata
+*:Zone.Identifier

@@ -1,0 +1,225 @@
+name: Infrastructure
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "infra/**"
+      - ".github/workflows/infrastructure.yml"
+
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Terraform root to plan or deploy"
+        required: true
+        type: choice
+        options:
+          - foundation
+          - main
+      action:
+        description: "Operation to perform"
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+      image_tag:
+        description: "ECR image tag used by the main deployment"
+        required: false
+        default: "latest"
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: eu-west-2
+  TF_IN_AUTOMATION: true
+
+concurrency:
+  group: ronin-infrastructure
+  cancel-in-progress: false
+
+jobs:
+  bootstrap-check:
+    name: Bootstrap validation
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: infra/bootstrap
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Check Terraform formatting
+        run: terraform fmt -check
+
+      - name: Terraform Init
+        run: terraform init -backend=false
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Set up TFLint
+        uses: terraform-linters/setup-tflint@v5
+
+      - name: Run TFLint
+        run: tflint
+
+  foundation:
+    name: Foundation ${{ github.event_name == 'push' && 'plan' || inputs.action }}
+    if: ${{ github.event_name == 'push' || inputs.target == 'foundation' }}
+    runs-on: ubuntu-latest
+
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      TF_VAR_cloudflare_zone_id: ${{ vars.CLOUDFLARE_ZONE_ID }}
+
+    defaults:
+      run:
+        working-directory: infra/foundation
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: arn:aws:iam::435059220418:role/ronin-github-actions
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Check Terraform formatting
+        run: terraform fmt -check
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Set up TFLint
+        uses: terraform-linters/setup-tflint@v5
+
+      - name: Run TFLint
+        run: tflint
+
+      - name: Terraform Plan
+        run: terraform plan -input=false -out=tfplan
+
+      - name: Terraform Apply
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'apply' }}
+        run: terraform apply -input=false -auto-approve tfplan
+
+  main:
+    name: Main ${{ github.event_name == 'push' && 'plan' || inputs.action }}
+    if: ${{ github.event_name == 'push' || inputs.target == 'main' }}
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: infra
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: arn:aws:iam::435059220418:role/ronin-github-actions
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Check Main prerequisites
+        id: foundation-ready
+        run: |
+          repository_ready=false
+          zone_ready=false
+
+          if aws ecr describe-repositories \
+            --repository-names ronin \
+            --region "$AWS_REGION" >/dev/null 2>&1; then
+            repository_ready=true
+          fi
+
+          zone_name=$(aws route53 list-hosted-zones-by-name \
+            --dns-name ronin.humdaan.co.uk \
+            --max-items 1 \
+            --query 'HostedZones[0].Name' \
+            --output text)
+
+          if [ "$zone_name" = "ronin.humdaan.co.uk." ]; then
+            zone_ready=true
+          fi
+
+          if [ "$repository_ready" = true ] && [ "$zone_ready" = true ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Explain skipped Main plan
+        if: ${{ github.event_name == 'push' && steps.foundation-ready.outputs.ready != 'true' }}
+        run: echo "Main plan skipped because Foundation has not created ECR and Route 53 yet."
+
+      - name: Set up Terraform
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.foundation-ready.outputs.ready == 'true' }}
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Check Terraform formatting
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.foundation-ready.outputs.ready == 'true' }}
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Init
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.foundation-ready.outputs.ready == 'true' }}
+        run: terraform init
+
+      - name: Terraform Validate
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.foundation-ready.outputs.ready == 'true' }}
+        run: terraform validate
+
+      - name: Set up TFLint
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.foundation-ready.outputs.ready == 'true' }}
+        uses: terraform-linters/setup-tflint@v5
+
+      - name: Run TFLint
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.foundation-ready.outputs.ready == 'true' }}
+        run: tflint --recursive
+
+      - name: Terraform Plan
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.foundation-ready.outputs.ready == 'true' }}
+        run: terraform plan -input=false -var="image_tag=${{ inputs.image_tag || 'latest' }}" -out=tfplan
+
+      - name: Terraform Apply
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'apply' }}
+        run: terraform apply -input=false -auto-approve tfplan
+
+      - name: Wait for ECS service
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'apply' }}
+        run: aws ecs wait services-stable --cluster ronin-cluster --services ronin-service --region "$AWS_REGION"
+
+      - name: Verify deployment health
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'apply' }}
+        run: |
+          for attempt in {1..12}; do
+            if curl --fail --silent --show-error https://ronin.humdaan.co.uk/health | grep -q '"status":"ok"'; then
+              echo "RONIN health check passed."
+              exit 0
+            fi
+
+            echo "Health check attempt $attempt failed. Retrying in 15 seconds..."
+            sleep 15
+          done
+
+          echo "RONIN deployment failed health check."
+          exit 1
