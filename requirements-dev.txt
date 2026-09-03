@@ -1,4 +1,0 @@
-# Development dependencies used to test RONIN before deployment, including all production dependencies.
-
--r requirements.txt
-pytest==8.4.1

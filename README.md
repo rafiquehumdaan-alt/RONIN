@@ -30,16 +30,14 @@ docker run --rm -p 8080:8080 ronin:local
 
 Open [http://localhost:8080](http://localhost:8080) in a browser. Stop the application with `Ctrl+C`.
 
-![RONIN running locally with Docker](docs/evidence/application/local-host-app-demo.png)
-
-### Run the tests
+In another terminal, confirm that the required health endpoint works:
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements-dev.txt
-PYTHONPATH=. pytest -q
+curl http://localhost:8080/health
+# {"status":"ok"}
 ```
+
+![RONIN running locally with Docker](docs/evidence/application/local-host-app-demo.png)
 
 ## Architecture
 
@@ -60,7 +58,6 @@ Terraform is separated into three small stages because each stage provides somet
 ```text
 RONIN/
 ├── app/                    # Flask application
-├── tests/                  # Automated tests
 ├── infra/
 │   ├── bootstrap/          # State bucket and GitHub AWS access
 │   ├── foundation/         # ECR and DNS foundation
@@ -77,7 +74,7 @@ RONIN/
 
 GitHub Actions connects to AWS through OIDC, so long-lived AWS access keys are not stored in GitHub.
 
-- **App Deploy** runs the tests, builds the Docker image and pushes SHA and `latest` tags to ECR.
+- **App Deploy** builds the Docker image, starts it, checks `/health` and then pushes SHA and `latest` tags to ECR.
 - **Infrastructure** checks the Terraform code and can plan or apply Foundation and Main in order.
 - **Destroy Infrastructure** safely removes Main first and Foundation second after typed confirmation.
 
@@ -118,4 +115,4 @@ To return to zero infrastructure, run the destroy workflow for **Main**, then **
 
 Python, Flask, Docker, Terraform, AWS ECS Fargate, ECR, VPC, ALB, CloudFront, Route 53, ACM, DynamoDB, S3, Lambda, EventBridge, CloudWatch, Cloudflare and GitHub Actions.
 
-## TIME LOG: 31 HOURS
+## TIME LOG: 40 HOURS
