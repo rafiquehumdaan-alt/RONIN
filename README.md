@@ -53,23 +53,6 @@ Terraform is separated into three small stages because each stage provides somet
 2. **Foundation** creates ECR, the Route 53 hosted zone and Cloudflare delegation.
 3. **Main** creates the VPC, certificates, CloudFront, ALB, ECS, storage and reporting resources.
 
-## Project Structure
-
-```text
-RONIN/
-├── app/                    # Flask application
-├── infra/
-│   ├── bootstrap/          # State bucket and GitHub AWS access
-│   ├── foundation/         # ECR and DNS foundation
-│   └── modules/            # Main reusable AWS components
-├── .github/workflows/      # Build, deployment and destruction pipelines
-├── docs/
-│   ├── architecture/       # Architecture diagram and reasoning
-│   └── evidence/           # Application, AWS and pipeline screenshots
-├── Dockerfile              # Production container image
-└── run.py                  # Application entry point
-```
-
 ## CI/CD Pipelines
 
 GitHub Actions connects to AWS through OIDC, so long-lived AWS access keys are not stored in GitHub.
