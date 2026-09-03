@@ -1,44 +1,43 @@
-# Multi-stage Dockerfile that builds a lightweight RONIN image and runs the application securely as a non-root user.
+# Stage 1: BUILDER
 
-# Stage 1 - Build the Python environment and install RONIN's runtime dependencies.
 FROM python:3.12-slim AS builder
-
+# Start with small linux image that has python installed. Name it "builder" so we can reference it later.
 WORKDIR /build
-
-# Copy the dependency list into the build stage.
+# Similar to cd, this sets the working directory for the next commands. If the directory doesn't exist, it will be created.
 COPY requirements.txt .
-
-# Create a virtual environment and install only the production dependencies.
+# Copy requirements.txt into the working directory (/build)
 RUN python -m venv /opt/venv
+# Create a virtual environment to store RONIN's Python dependencies
 RUN /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
+# Install RONIN's dependencies into the virtual environment
 
 
-# Stage 2 - Create the final lightweight runtime image used to run RONIN.
+
+# Stage 2 — Runtime
+
 FROM python:3.12-slim AS runtime
-
-# Use the virtual environment copied from the builder stage.
+# Start again with a fresh small Python 3.12 environment and call this one "runtime"
 ENV PATH="/opt/venv/bin:$PATH"
-
-# RONIN listens internally on port 8080.
+# Make the virtual environment's Python tools available as normal commands
 ENV PORT=8080
-
+# Set RONIN's application port to 8080
 WORKDIR /app
-
-# Create a dedicated non-root user to reduce the container's privileges.
+# Create /app and use it as RONIN's working directory
 RUN useradd --system --create-home ronin
-
-# Copy the installed dependencies from the builder stage.
+# Create a non-root user called ronin for better security
 COPY --from=builder /opt/venv /opt/venv
-
-# Copy the RONIN application into the runtime image and give the ronin user ownership.
+# Copy the installed dependencies from the builder stage
 COPY --chown=ronin:ronin app/ ./app/
+# Copy RONIN's application files and give the ronin user ownership
 COPY --chown=ronin:ronin run.py .
-
-# Run the application as the non-root ronin user rather than root.
+# Copy RONIN's startup file and give the ronin user ownership
 USER ronin
-
-# Document the port used by the application inside the container.
+# Run RONIN as the non-root ronin user
 EXPOSE 8080
+# RONIN listens on port 8080
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "2", "run:app"]
+# Start RONIN with Gunicorn on port 8080
 
-# Start RONIN using Gunicorn with two worker processes.
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "run:app"]
+
+
+# Multi-stage keeps the final image clean by leaving build-only files like requirements.txt behind.
