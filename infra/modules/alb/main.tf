@@ -30,6 +30,8 @@ resource "aws_vpc_security_group_egress_rule" "all" {
   ip_protocol       = "-1"
 }
 
+# -1 means all protocols, allowing all outbound traffic from the security group. 
+
 resource "aws_lb" "main" {
   name               = "ronin-alb"
   internal           = false
@@ -66,6 +68,8 @@ resource "aws_lb_target_group" "ecs" {
   }
 }
 
+# Checks /health every 30s, allowing 5s to respond; 2 consecutive HTTP 200s = healthy, 3 consecutive failures = unhealthy.
+
 resource "aws_lb_listener" "https" {
   load_balancer_arn = aws_lb.main.arn
   port              = 443
@@ -94,3 +98,5 @@ resource "aws_lb_listener" "http" {
     }
   }
 }
+
+# redirects all HTTP traffic to HTTPS 

@@ -84,6 +84,8 @@ resource "aws_ecs_task_definition" "app" {
   ])
 }
 
+# Defines the RONIN Fargate task, including its container image, CPU/memory, IAM roles, port, environment variables and CloudWatch logging.
+
 resource "aws_ecs_service" "app" {
   name            = "ronin-service"
   cluster         = aws_ecs_cluster.main.id
@@ -103,6 +105,8 @@ resource "aws_ecs_service" "app" {
     container_port   = 8080
   }
 }
+
+# Creates the RONIN ECS Fargate service, running two tasks in private subnets and connecting them to the ALB target group.
 
 resource "aws_appautoscaling_target" "ecs" {
   max_capacity       = 4

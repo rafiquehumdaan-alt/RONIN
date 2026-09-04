@@ -4,6 +4,8 @@ data "archive_file" "lambda" {
   output_path = "${path.module}/lambda_function.zip"
 }
 
+# Packages the Lambda Python code into a ZIP file that can be deployed to AWS Lambda.
+
 resource "aws_iam_role" "lambda" {
   name = "ronin-weekly-summary-role"
 
@@ -26,10 +28,14 @@ resource "aws_iam_role" "lambda" {
   }
 }
 
+# Creates an IAM role (ronin-weekly-summary-role) that the RONIN Lambda function is allowed to assume.
+
 resource "aws_iam_role_policy_attachment" "lambda_basic" {
   role       = aws_iam_role.lambda.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
+
+# Attaches AWS's managed Lambda policy to allow CloudWatch logging.
 
 resource "aws_iam_role_policy" "lambda_storage" {
   name = "ronin-weekly-summary-storage-policy"
@@ -60,6 +66,8 @@ resource "aws_iam_role_policy" "lambda_storage" {
     ]
   })
 }
+
+# Adds a custom policy allowing Lambda to scan DynamoDB and write weekly reports to S3.
 
 resource "aws_lambda_function" "weekly_summary" {
   function_name = "ronin-weekly-summary"
@@ -93,6 +101,8 @@ resource "aws_lambda_function" "weekly_summary" {
   }
 }
 
+# Creates the weekly Python Lambda function, using the packaged code (python code), IAM permissions, and DynamoDB/S3 environment variables.
+
 resource "aws_iam_role" "scheduler" {
   name = "ronin-scheduler-role"
 
@@ -115,6 +125,8 @@ resource "aws_iam_role" "scheduler" {
   }
 }
 
+# Creates an IAM role that EventBridge Scheduler can assume to perform its assigned actions.
+
 resource "aws_iam_role_policy" "scheduler_invoke_lambda" {
   name = "ronin-scheduler-invoke-lambda"
   role = aws_iam_role.scheduler.id
@@ -133,6 +145,8 @@ resource "aws_iam_role_policy" "scheduler_invoke_lambda" {
     }]
   })
 }
+
+# Gives the scheduler role permission to invoke the RONIN weekly summary Lambda function.
 
 resource "aws_scheduler_schedule" "weekly_summary" {
   name = "ronin-weekly-summary"
@@ -153,3 +167,5 @@ resource "aws_scheduler_schedule" "weekly_summary" {
     aws_iam_role_policy.scheduler_invoke_lambda
   ]
 }
+
+# Schedules the weekly summary Lambda to run every Sunday at 9:00 AM London time using the scheduler IAM role.

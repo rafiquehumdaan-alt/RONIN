@@ -1,6 +1,6 @@
 resource "aws_cloudfront_distribution" "main" {
   enabled         = true
-  is_ipv6_enabled = true
+  is_ipv6_enabled = false
   comment         = "RONIN CloudFront distribution"
 
   aliases = [var.domain_name]
@@ -40,6 +40,8 @@ resource "aws_cloudfront_distribution" "main" {
     origin_request_policy_id = "b689b0a8-53d0-40ab-baf2-68738e2966ac"
   }
 
+  # Redirects users to HTTPS, forwards requests to the ALB, allows all common HTTP methods, and only caches GET/HEAD requests using the configured AWS policies.
+
   ordered_cache_behavior {
     path_pattern           = "/static/*"
     target_origin_id       = "ronin-alb-origin"
@@ -58,6 +60,8 @@ resource "aws_cloudfront_distribution" "main" {
     cache_policy_id = "658327ea-f89d-4fab-a63d-7e88639e58f6"
   }
 
+  # Applies a dedicated CloudFront caching rule to /static/* files, allowing only GET/HEAD requests and caching them at CloudFront edge locations for faster delivery.
+
   restrictions {
     geo_restriction {
       restriction_type = "none"
@@ -74,3 +78,5 @@ resource "aws_cloudfront_distribution" "main" {
     Name = "ronin-cloudfront"
   }
 }
+
+# Allows CloudFront access from all geographic locations, uses SNI and requires clients to use TLS 1.2 or newer for HTTPS connections.

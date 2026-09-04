@@ -25,6 +25,9 @@ resource "aws_iam_role_policy_attachment" "ecs_execution" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
+# Creates an IAM execution role that ECS Fargate tasks are allowed to assume.
+# Attaches AWS's standard permissions for actions such as pulling ECR images and sending logs to CloudWatch.
+
 resource "aws_iam_role" "ecs_task" {
   name = "ronin-ecs-task-role"
 
@@ -90,3 +93,6 @@ resource "aws_iam_role_policy" "ecs_task_storage" {
     ]
   })
 }
+
+# Creates the IAM task role that the RONIN application assumes while running in ECS.
+# Grants the role the required permissions to read/write data in the specified DynamoDB table and S3 bucket.

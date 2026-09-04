@@ -36,3 +36,5 @@ resource "cloudflare_dns_record" "ronin_delegation" {
   content = each.value
   ttl     = 3600
 }
+
+# Creates four NS records in Cloudflare that delegate DNS control of the ronin subdomain to Route 53.

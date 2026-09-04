@@ -25,6 +25,9 @@ resource "aws_acm_certificate" "viewer" {
   }
 }
 
+# Creates a DNS-validated ACM certificate in us-east-1 for the CloudFront domain.
+# Ensures a replacement certificate is created before the existing one is destroyed.
+
 resource "aws_acm_certificate" "origin" {
   domain_name       = var.origin_domain_name
   validation_method = "DNS"
@@ -37,6 +40,9 @@ resource "aws_acm_certificate" "origin" {
     Name = "ronin-origin-certificate"
   }
 }
+
+# Creates a DNS-validated ACM certificate for the origin domain used by the ALB.
+# Creates any replacement certificate before removing the existing one.
 
 resource "aws_route53_record" "viewer_validation" {
   for_each = {
@@ -55,6 +61,9 @@ resource "aws_route53_record" "viewer_validation" {
   ttl     = 60
 }
 
+# Creates the Route 53 DNS records required by ACM to prove ownership of the viewer domain.
+# Uses ACM's validation details to automatically create the correct records.
+
 resource "aws_route53_record" "origin_validation" {
   for_each = {
     for dvo in aws_acm_certificate.origin.domain_validation_options :
@@ -72,6 +81,9 @@ resource "aws_route53_record" "origin_validation" {
   ttl     = 60
 }
 
+# Creates the Route 53 DNS records required by ACM to prove ownership of the origin domain.
+# Uses ACM's validation details to automatically create the correct records.
+
 resource "aws_acm_certificate_validation" "viewer" {
   provider = aws.us_east_1
 
@@ -83,6 +95,9 @@ resource "aws_acm_certificate_validation" "viewer" {
   ]
 }
 
+# Completes ACM validation of the CloudFront viewer certificate using the Route 53 DNS records.
+# Ensures the certificate is validated and ready for use.
+
 resource "aws_acm_certificate_validation" "origin" {
   certificate_arn = aws_acm_certificate.origin.arn
 
@@ -91,3 +106,6 @@ resource "aws_acm_certificate_validation" "origin" {
     record.fqdn
   ]
 }
+
+# Completes ACM validation of the origin certificate using the Route 53 DNS records.
+# Ensures the certificate is validated and ready for use by the ALB.

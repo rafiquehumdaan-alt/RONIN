@@ -10,6 +10,8 @@ resource "aws_route53_record" "origin" {
   }
 }
 
+# Creates a Route 53 A alias record that points the origin domain to the Application Load Balancer.
+
 resource "aws_route53_record" "app" {
   zone_id = var.zone_id
   name    = var.domain_name
@@ -21,3 +23,5 @@ resource "aws_route53_record" "app" {
     evaluate_target_health = false
   }
 }
+
+# Creates a Route 53 A alias record that points the public RONIN domain to the CloudFront distribution.

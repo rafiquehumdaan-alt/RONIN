@@ -39,3 +39,5 @@ def lambda_handler(event, context):
         "report_key": report_key,
         "analysis_count": len(analyses),
     }
+
+# Scans the DynamoDB table, generates a weekly JSON summary report, and stores it in the configured S3 bucket.
