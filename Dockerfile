@@ -35,7 +35,7 @@ USER ronin
 # Run RONIN as the non-root ronin user
 EXPOSE 8080
 # RONIN listens on port 8080
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "2", "run:app"]
+CMD ["gunicorn", "--workers", "2", "--bind", "0.0.0.0:8080", "run:app"]
 # Start RONIN with Gunicorn on port 8080
 
 
