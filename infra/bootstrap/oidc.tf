@@ -84,7 +84,7 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     resources = ["arn:aws:ecr:eu-west-2:${data.aws_caller_identity.current.account_id}:repository/ronin"]
   }
 
-# Allows GitHub Actions to manage images and resources in the RONIN ECR repository.
+  # Allows GitHub Actions to manage images and resources in the RONIN ECR repository.
 
   statement {
     sid       = "EC2Networking"
@@ -119,7 +119,7 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     resources = ["*"]
   }
 
-# Allows GitHub Actions to manage the ACM certificates used to secure RONIN with HTTPS.
+  # Allows GitHub Actions to manage the ACM certificates used to secure RONIN with HTTPS.
 
   statement {
     sid       = "DNS"
@@ -127,7 +127,7 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     resources = ["*"]
   }
 
-# Allows GitHub Actions to manage the Route 53 DNS resources used by RONIN.
+  # Allows GitHub Actions to manage the Route 53 DNS resources used by RONIN.
 
   statement {
     sid       = "CloudFront"
@@ -135,7 +135,7 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     resources = ["*"]
   }
 
-# Allows GitHub Actions to manage the CloudFront distribution used by RONIN.
+  # Allows GitHub Actions to manage the CloudFront distribution used by RONIN.
 
   statement {
     sid = "ApplicationStorage"
@@ -146,7 +146,7 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     resources = ["*"]
   }
 
-# Allows GitHub Actions to manage the S3 and DynamoDB resources used by RONIN.
+  # Allows GitHub Actions to manage the S3 and DynamoDB resources used by RONIN.
 
   statement {
     sid = "LambdaAndScheduler"
@@ -157,7 +157,7 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     resources = ["*"]
   }
 
-# Allows GitHub Actions to manage the Lambda functions and EventBridge schedules used by RONIN.
+  # Allows GitHub Actions to manage the Lambda functions and EventBridge schedules used by RONIN.
 
   statement {
     sid       = "Logging"
@@ -165,7 +165,7 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     resources = ["*"]
   }
 
-# Allows GitHub Actions to manage the CloudWatch Logs resources used by RONIN.
+  # Allows GitHub Actions to manage the CloudWatch Logs resources used by RONIN.
 
   statement {
     sid = "IAMForRonin"
