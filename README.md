@@ -90,12 +90,10 @@ The full environment is created in this order:
 3. Run the **App Deploy** workflow to build and push the image to ECR.
 4. Run the **Infrastructure** workflow for `main` with the `apply` action.
 
-The Cloudflare API token is stored as the GitHub secret `CLOUDFLARE_API_TOKEN`, and the Cloudflare zone ID is stored as the repository variable `CLOUDFLARE_ZONE_ID`.
-
 To return to zero infrastructure, run the destroy workflow for **Main**, then **Foundation**, and finally run `terraform destroy` locally in `infra/bootstrap`.
 
 ## Main Technologies
 
 Python, Flask, Docker, Terraform, AWS ECS Fargate, ECR, VPC, ALB, CloudFront, Route 53, ACM, DynamoDB, S3, Lambda, EventBridge, CloudWatch, Cloudflare and GitHub Actions.
 
-## TIME LOG: 40 HOURS
+## TIME LOG: 52 HOURS
