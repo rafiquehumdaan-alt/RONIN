@@ -96,4 +96,4 @@ To return to zero infrastructure, run the destroy workflow for **Main**, then **
 
 Python, Flask, Docker, Terraform, AWS ECS Fargate, ECR, VPC, ALB, CloudFront, Route 53, ACM, DynamoDB, S3, Lambda, EventBridge, CloudWatch, Cloudflare and GitHub Actions.
 
-## TIME LOG: 52 HOURS
+## TIME LOG: 56 HOURS

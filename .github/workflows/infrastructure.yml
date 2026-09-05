@@ -31,6 +31,7 @@ on:
 
 permissions:
   id-token: write
+  # Lets GitHub request an OIDC token to authenticate with AWS.
   contents: read
 
 env:
@@ -75,7 +76,9 @@ jobs:
 
   foundation:
     name: Foundation ${{ github.event_name == 'push' && 'plan' || inputs.action }}
+    # If the workflow was triggered by a push, use "plan" in the job name. Otherwise, use the user-selected action.
     if: ${{ github.event_name == 'push' || inputs.target == 'foundation' }}
+    # Run this job if the workflow was triggered by a push OR the user manually selected "foundation"
     runs-on: ubuntu-latest
 
     env:
