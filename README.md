@@ -1,6 +1,6 @@
 # RONIN
 
-RONIN is a BYO small Flask application built for ECS portfolio project. It uses safe demo data to identify possible AWS infrastructure issues, underused resources and optimisation opportunities without connecting to a real customer account.
+RONIN is a BYO small Flask application built for the ECS portfolio project. It uses safe demo data to identify possible AWS infrastructure issues, underused resources and optimisation opportunities without connecting to a real customer account.
 
 The project demonstrates how an application can be tested, containerised, deployed and removed using Docker, Terraform, AWS and GitHub Actions.
 
