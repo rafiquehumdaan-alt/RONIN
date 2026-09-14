@@ -25,10 +25,15 @@ resource "aws_vpc_security_group_ingress_rule" "ecs_from_alb" {
   ip_protocol = "tcp"
 }
 
+# ECR and CloudWatch Logs require public HTTPS access through NAT.
+# Accepted risk: any IPv4 destination remains reachable on TCP port 443.
+# trivy:ignore:AWS-0104
 resource "aws_vpc_security_group_egress_rule" "ecs_all" {
   security_group_id = aws_security_group.ecs.id
   cidr_ipv4         = "0.0.0.0/0"
-  ip_protocol       = "-1"
+  from_port         = 443
+  to_port           = 443
+  ip_protocol       = "tcp"
 }
 
 resource "aws_cloudwatch_log_group" "ecs" {

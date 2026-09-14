@@ -75,6 +75,16 @@ jobs:
           docker rm --force ronin-health-check
           exit 1
 
+      - name: Scan Docker image for critical vulnerabilities
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+          format: table
+          severity: CRITICAL
+          scanners: vuln
+          exit-code: 1
+
       - name: Tag Docker image for ECR
         run: |
           docker tag \

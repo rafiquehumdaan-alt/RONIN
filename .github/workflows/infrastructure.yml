@@ -43,6 +43,25 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  security-scan:
+    name: Terraform security scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Scan Terraform for critical misconfigurations
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: config
+          scan-ref: infra
+          format: table
+          severity: CRITICAL
+          exit-code: 1
+
   bootstrap-check:
     name: Bootstrap validation
     if: ${{ github.event_name == 'push' }}
@@ -79,6 +98,7 @@ jobs:
     # If the workflow was triggered by a push, use "plan" in the job name. Otherwise, use the user-selected action.
     if: ${{ github.event_name == 'push' || inputs.target == 'foundation' }}
     # Run this job if the workflow was triggered by a push OR the user manually selected "foundation"
+    needs: security-scan
     runs-on: ubuntu-latest
 
     env:
@@ -127,6 +147,7 @@ jobs:
   main:
     name: Main ${{ github.event_name == 'push' && 'plan' || inputs.action }}
     if: ${{ github.event_name == 'push' || inputs.target == 'main' }}
+    needs: security-scan
     runs-on: ubuntu-latest
 
     defaults:

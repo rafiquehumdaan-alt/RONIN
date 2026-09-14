@@ -26,11 +26,13 @@ resource "aws_vpc_security_group_ingress_rule" "https" {
 
 resource "aws_vpc_security_group_egress_rule" "all" {
   security_group_id = aws_security_group.alb.id
-  cidr_ipv4         = "0.0.0.0/0"
-  ip_protocol       = "-1"
+  cidr_ipv4         = var.vpc_cidr
+  from_port         = 8080
+  to_port           = 8080
+  ip_protocol       = "tcp"
 }
 
-# -1 means all protocols, allowing all outbound traffic from the security group. 
+# Allows application requests and health checks within the VPC on TCP 8080.
 
 resource "aws_lb" "main" {
   name               = "ronin-alb"
@@ -99,4 +101,4 @@ resource "aws_lb_listener" "http" {
   }
 }
 
-# redirects all HTTP traffic to HTTPS 
+# Redirects all HTTP traffic to HTTPS.

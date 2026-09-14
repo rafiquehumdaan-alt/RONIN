@@ -1,3 +1,8 @@
+variable "vpc_cidr" {
+  description = "VPC address range allowed for ALB outbound traffic"
+  type        = string
+}
+
 variable "vpc_id" {
   description = "ID of the RONIN VPC"
   type        = string
