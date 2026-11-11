@@ -4,8 +4,7 @@ variable "aws_region" {
   default     = "eu-west-2"
 }
 
-variable "image_tag" {
-  description = "Docker image tag to deploy to ECS"
+variable "cloudflare_zone_id" {
+  description = "Cloudflare Zone ID for humdaan.co.uk"
   type        = string
-  default     = "latest"
 }

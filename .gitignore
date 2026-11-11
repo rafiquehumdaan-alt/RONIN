@@ -38,7 +38,7 @@ override.tf.json
 terraform.rc
 
 # Generated Lambda deployment package
-infra/modules/lambda/lambda_function.zip
+terraform/modules/lambda/lambda_function.zip
 
 # Windows metadata
 *:Zone.Identifier

@@ -1,10 +1,61 @@
-data "aws_ecr_repository" "ronin" {
-  name = "ronin"
+terraform {
+  required_version = ">= 1.10.0"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 6.0"
+    }
+
+    cloudflare = {
+      source  = "cloudflare/cloudflare"
+      version = "~> 5.0"
+    }
+
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.7"
+    }
+  }
 }
 
-data "aws_route53_zone" "ronin" {
-  name         = "ronin.humdaan.co.uk"
-  private_zone = false
+resource "aws_ecr_repository" "ronin" {
+  name                 = "ronin"
+  image_tag_mutability = "MUTABLE"
+  force_delete         = true
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name    = "ronin"
+    Project = "RONIN"
+  }
+}
+
+resource "aws_route53_zone" "ronin" {
+  name = "ronin.humdaan.co.uk"
+
+  tags = {
+    Name    = "ronin.humdaan.co.uk"
+    Project = "RONIN"
+  }
+}
+
+resource "cloudflare_dns_record" "ronin_delegation" {
+  for_each = {
+    ns1 = aws_route53_zone.ronin.name_servers[0]
+    ns2 = aws_route53_zone.ronin.name_servers[1]
+    ns3 = aws_route53_zone.ronin.name_servers[2]
+    ns4 = aws_route53_zone.ronin.name_servers[3]
+  }
+
+  zone_id = var.cloudflare_zone_id
+  name    = "ronin"
+  type    = "NS"
+  content = each.value
+  ttl     = 3600
 }
 
 module "vpc" {
@@ -45,7 +96,9 @@ module "acm" {
 
   domain_name        = "ronin.humdaan.co.uk"
   origin_domain_name = "origin.ronin.humdaan.co.uk"
-  route53_zone_id    = data.aws_route53_zone.ronin.zone_id
+  route53_zone_id    = aws_route53_zone.ronin.zone_id
+
+  depends_on = [cloudflare_dns_record.ronin_delegation]
 }
 
 module "alb" {
@@ -68,7 +121,7 @@ module "cloudfront" {
 module "route53" {
   source = "./modules/route53"
 
-  zone_id                = data.aws_route53_zone.ronin.zone_id
+  zone_id                = aws_route53_zone.ronin.zone_id
   domain_name            = "ronin.humdaan.co.uk"
   origin_domain_name     = "origin.ronin.humdaan.co.uk"
   alb_dns_name           = module.alb.alb_dns_name
@@ -85,8 +138,7 @@ module "ecs" {
   alb_security_group_id = module.alb.security_group_id
   target_group_arn      = module.alb.target_group_arn
 
-  ecr_repository_url = data.aws_ecr_repository.ronin.repository_url
-  image_tag          = var.image_tag
+  ecr_repository_url = aws_ecr_repository.ronin.repository_url
 
   ecs_execution_role_arn = module.iam.ecs_execution_role_arn
   ecs_task_role_arn      = module.iam.ecs_task_role_arn

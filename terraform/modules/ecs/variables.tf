@@ -13,11 +13,6 @@ variable "ecr_repository_url" {
   type        = string
 }
 
-variable "image_tag" {
-  description = "Docker image tag to deploy"
-  type        = string
-}
-
 variable "ecs_execution_role_arn" {
   description = "ARN of the ECS task execution role"
   type        = string

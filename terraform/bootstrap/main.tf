@@ -1,3 +1,51 @@
+terraform {
+  required_version = ">= 1.10.0"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 6.0"
+    }
+  }
+}
+
+resource "aws_s3_bucket" "terraform_state" {
+  bucket        = "ronin-terraform-state-435059220418"
+  force_destroy = true
+
+  tags = {
+    Name    = "ronin-terraform-state"
+    Project = "RONIN"
+  }
+}
+
+resource "aws_s3_bucket_versioning" "terraform_state" {
+  bucket = aws_s3_bucket.terraform_state.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "terraform_state" {
+  bucket = aws_s3_bucket.terraform_state.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "terraform_state" {
+  bucket = aws_s3_bucket.terraform_state.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
 data "aws_caller_identity" "current" {}
 
 resource "aws_iam_openid_connect_provider" "github" {
@@ -12,8 +60,6 @@ resource "aws_iam_openid_connect_provider" "github" {
     Project = "RONIN"
   }
 }
-
-# Registers GitHub as a trusted OIDC identity provider so GitHub Actions can authenticate with AWS.
 
 data "aws_iam_policy_document" "github_actions_trust" {
   statement {
@@ -39,8 +85,6 @@ data "aws_iam_policy_document" "github_actions_trust" {
   }
 }
 
-# Creates a trust policy allowing only the authorised GitHub repository to assume the IAM role through OIDC.
-
 resource "aws_iam_role" "github_actions" {
   name               = var.github_actions_role_name
   assume_role_policy = data.aws_iam_policy_document.github_actions_trust.json
@@ -50,8 +94,6 @@ resource "aws_iam_role" "github_actions" {
     Project = "RONIN"
   }
 }
-
-# Creates the IAM role that authorised GitHub Actions workflows can assume through OIDC.
 
 data "aws_iam_policy_document" "github_actions_permissions" {
   statement {
@@ -68,15 +110,11 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     ]
   }
 
-  # GitHub Actions can read and update Terraform's state stored in this S3 bucket
-
   statement {
     sid       = "ECRAuthorization"
     actions   = ["ecr:GetAuthorizationToken"]
     resources = ["*"]
   }
-
-  # Allows GitHub Actions to obtain an authorization token for authenticating with Amazon ECR.
 
   statement {
     sid       = "ECR"
@@ -84,15 +122,11 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     resources = ["arn:aws:ecr:eu-west-2:${data.aws_caller_identity.current.account_id}:repository/ronin"]
   }
 
-  # Allows GitHub Actions to manage images and resources in the RONIN ECR repository.
-
   statement {
     sid       = "EC2Networking"
     actions   = ["ec2:*"]
     resources = ["*"]
   }
-
-  # Allows GitHub Actions to manage the EC2 networking resources required by the RONIN infrastructure.
 
   statement {
     sid = "ECS"
@@ -103,15 +137,11 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     resources = ["*"]
   }
 
-  # Allows GitHub Actions to manage the RONIN ECS infrastructure and application auto scaling.
-
   statement {
     sid       = "LoadBalancing"
     actions   = ["elasticloadbalancing:*"]
     resources = ["*"]
   }
-
-  # Allows GitHub Actions to manage the ALB, listeners and target groups used by RONIN.
 
   statement {
     sid       = "Certificates"
@@ -119,23 +149,17 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     resources = ["*"]
   }
 
-  # Allows GitHub Actions to manage the ACM certificates used to secure RONIN with HTTPS.
-
   statement {
     sid       = "DNS"
     actions   = ["route53:*"]
     resources = ["*"]
   }
 
-  # Allows GitHub Actions to manage the Route 53 DNS resources used by RONIN.
-
   statement {
     sid       = "CloudFront"
     actions   = ["cloudfront:*"]
     resources = ["*"]
   }
-
-  # Allows GitHub Actions to manage the CloudFront distribution used by RONIN.
 
   statement {
     sid = "ApplicationStorage"
@@ -146,8 +170,6 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     resources = ["*"]
   }
 
-  # Allows GitHub Actions to manage the S3 and DynamoDB resources used by RONIN.
-
   statement {
     sid = "LambdaAndScheduler"
     actions = [
@@ -157,15 +179,11 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     resources = ["*"]
   }
 
-  # Allows GitHub Actions to manage the Lambda functions and EventBridge schedules used by RONIN.
-
   statement {
     sid       = "Logging"
     actions   = ["logs:*"]
     resources = ["*"]
   }
-
-  # Allows GitHub Actions to manage the CloudWatch Logs resources used by RONIN.
 
   statement {
     sid = "IAMForRonin"
@@ -190,8 +208,6 @@ data "aws_iam_policy_document" "github_actions_permissions" {
   }
 }
 
-# Allows GitHub Actions to create, manage and pass the IAM roles and policies required by RONIN.
-
 resource "aws_iam_policy" "github_actions" {
   name        = "ronin-github-actions-policy"
   description = "Permissions used by RONIN GitHub Actions workflows"
@@ -203,11 +219,7 @@ resource "aws_iam_policy" "github_actions" {
   }
 }
 
-# Creates the GitHub Actions IAM policy using the RONIN permissions defined above.
-
 resource "aws_iam_role_policy_attachment" "github_actions" {
   role       = aws_iam_role.github_actions.name
   policy_arn = aws_iam_policy.github_actions.arn
 }
-
-# Attaches the RONIN permissions policy to the GitHub Actions IAM role.
