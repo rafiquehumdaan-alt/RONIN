@@ -6,6 +6,8 @@ output "security_group_id" {
 output "target_group_arn" {
   description = "ARN of the RONIN ECS target group"
   value       = aws_lb_target_group.ecs.arn
+
+  depends_on = [aws_lb_listener.https]
 }
 
 output "alb_dns_name" {

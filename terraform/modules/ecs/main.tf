@@ -95,7 +95,7 @@ resource "aws_ecs_service" "app" {
   name            = "ronin-service"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.app.arn
-  desired_count   = 2
+  desired_count   = 0
   launch_type     = "FARGATE"
 
   network_configuration {
@@ -109,16 +109,22 @@ resource "aws_ecs_service" "app" {
     container_name   = "ronin"
     container_port   = 8080
   }
-}
 
-# Creates the RONIN ECS Fargate service, running two tasks in private subnets and connecting them to the ALB target group.
+  lifecycle {
+    ignore_changes = [desired_count]
+  }
+}
 
 resource "aws_appautoscaling_target" "ecs" {
   max_capacity       = 4
-  min_capacity       = 2
+  min_capacity       = 0
   resource_id        = "service/${aws_ecs_cluster.main.name}/${aws_ecs_service.app.name}"
   scalable_dimension = "ecs:service:DesiredCount"
   service_namespace  = "ecs"
+
+  lifecycle {
+    ignore_changes = [min_capacity]
+  }
 }
 
 resource "aws_appautoscaling_policy" "ecs_cpu" {

@@ -6,7 +6,6 @@ on:
       - main
     paths:
       - "terraform/**"
-      - "scripts/**"
       - ".github/workflows/terraform.yaml"
 
   pull_request:
@@ -14,7 +13,6 @@ on:
       - main
     paths:
       - "terraform/**"
-      - "scripts/**"
       - ".github/workflows/terraform.yaml"
 
   workflow_dispatch:
@@ -41,6 +39,7 @@ env:
 
 jobs:
   terraform-checks:
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -71,7 +70,6 @@ jobs:
 
   main:
     if: github.event_name == 'workflow_dispatch'
-    needs: terraform-checks
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -99,31 +97,22 @@ jobs:
       - name: Initialise Main backend
         run: terraform init -input=false
 
-      - name: Check for an application image
-        if: inputs.action != 'destroy'
-        id: image
-        run: bash ../scripts/check-ecr-image.sh
-
       - name: Plan Main
-        if: inputs.action != 'destroy' && steps.image.outputs.exists == 'true'
-        run: terraform plan -input=false -out=tfplan
+        if: inputs.action == 'plan'
+        run: terraform plan -input=false
 
-      - name: Plan ECR before the first image push
-        if: inputs.action != 'destroy' && steps.image.outputs.exists == 'false'
-        run: terraform plan -input=false -target=aws_ecr_repository.ronin -out=tfplan
+      - name: Plan Main for apply
+        if: inputs.action == 'apply'
+        run: terraform plan -input=false -out=main.tfplan
 
       - name: Plan destroy
         if: inputs.action == 'destroy'
-        run: terraform plan -input=false -destroy -out=tfplan
+        run: terraform plan -input=false -destroy -out=main.tfplan
 
       - name: Apply saved plan
-        if: github.event_name == 'workflow_dispatch' && (inputs.action == 'apply' || inputs.action == 'destroy')
-        run: terraform apply -input=false tfplan
+        if: inputs.action == 'apply' || inputs.action == 'destroy'
+        run: terraform apply -input=false main.tfplan
 
-      - name: Wait for ECS service
-        if: inputs.action == 'apply' && steps.image.outputs.exists == 'true'
-        run: aws ecs wait services-stable --cluster ronin-cluster --services ronin-service
-
-      - name: Verify public health
-        if: inputs.action == 'apply' && steps.image.outputs.exists == 'true'
-        run: bash ../scripts/verify-app-health.sh https://ronin.humdaan.co.uk/health 15
+      - name: Report infrastructure readiness
+        if: inputs.action == 'apply'
+        run: echo "RONIN infrastructure is ready. Run App Deploy next."
