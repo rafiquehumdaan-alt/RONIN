@@ -1,101 +1,55 @@
-## CHANGES IN PROGRESS  
+# RONIN on Amazon ECS
 
-I am currently making changes to this repo so please keep that in mind if you are viewing. 
+Welcome to RONIN. I built it to explore how a small Flask app goes from a Docker image to a running service on AWS. The project covers the infrastructure, how I release updates, and how I check that the right version is live.
 
+## The application
 
-# RONIN
+RONIN reviews a sample AWS environment and flags things like unattached EBS volumes and EC2 instances with low utilisation. You can read each finding, see why it was flagged, and try the suggested action using demo data.
 
-RONIN is a BYO small Flask application built for the ECS portfolio project. It uses safe demo data to identify possible AWS infrastructure issues, underused resources and optimisation opportunities without connecting to a real customer account.
+When the environment is running, you can try it at [ronin.humdaan.co.uk](https://ronin.humdaan.co.uk). The site may be offline when the AWS stack is torn down.
 
-The project demonstrates how an application can be tested, containerised, deployed and removed using Docker, Terraform, AWS and GitHub Actions.
+![RONIN running over HTTPS](documentation/screenshots/ronin-live.png)
 
-## App Demo
+## How it fits together
 
-The deployed application is served securely at `https://ronin.humdaan.co.uk` through CloudFront, with HTTPS visible in the browser.
+The app runs on Amazon ECS Fargate in the AWS London region. The tasks run in private subnets across two Availability Zones. Amazon ECR stores the Docker images, and CloudWatch Logs collects the container logs.
 
-![RONIN application running over HTTPS](docs/evidence/application/webapp-ui-https.png)
+Cloudflare delegates the RONIN subdomain to Route 53. Visitors connect to CloudFront over HTTPS. CloudFront forwards app requests to an Application Load Balancer, which routes them to healthy Fargate tasks.
 
-The interface lets a user review findings calculated from the demo environment and simulate recommended actions.
+I split Terraform into two parts. Bootstrap creates the S3 bucket for remote state and the AWS role used by GitHub Actions. The main configuration uses that backend and provisions the application infrastructure.
 
-## Local Setup
+### AWS architecture
 
-### Requirements
+[![RONIN AWS architecture diagram](documentation/architecture/architecture-diagram-V4.png)](documentation/architecture/architecture-diagram-V4.png)
 
-- Docker
-- Git
+## Deploying changes
 
-### Run with Docker
+I use two GitHub Actions workflows so I can change the infrastructure and release the app independently. Both use GitHub OIDC to get temporary AWS credentials for deployment.
 
-```bash
-git clone https://github.com/rafiquehumdaan-alt/RONIN.git
-cd RONIN
-docker build -t ronin:local ./app
-docker run --rm -p 8080:8080 ronin:local
-```
+### Terraform workflow
 
-Open [http://localhost:8080](http://localhost:8080) in a browser. Stop the application with `Ctrl+C`.
+The Terraform workflow checks formatting, validates the configuration, and runs TFLint and Checkov. These checks run on relevant pushes and pull requests, and before a manual plan, apply or destroy. Checkov findings are advisory.
 
-In another terminal, confirm that the required health endpoint works:
+Choose **plan** to preview changes. Choose **apply** or **destroy** to generate a saved plan and apply it in the same run.
 
-```bash
-curl http://localhost:8080/health
-# {"status":"ok"}
-```
+![Successful Terraform apply](documentation/screenshots/terraform-workflow-success-apply.png)
 
-![RONIN running locally with Docker](docs/evidence/application/local-host-app-demo.png)
+See the [Terraform workflow](.github/workflows/terraform.yaml) and the [destroy run screenshot](documentation/screenshots/terraform-workflow-success-destruction.png).
 
-## Architecture
+### Application workflow
 
-RONIN runs in AWS across two Availability Zones. Cloudflare delegates the RONIN subdomain to Route 53, and user traffic travels through CloudFront and an Application Load Balancer to ECS Fargate tasks in private subnets. The tasks use the NAT gateway in their Availability Zone for ECR image pulls, including image-layer downloads. Flask computes findings from demo data when the page is requested.
+The application workflow builds the Docker image, starts a container to smoke-test the health endpoint, and scans the image with Trivy. On a manual deploy from **main**, it pushes that same image to ECR with a run-specific tag and the **latest** tag.
 
-[Read the architecture and network design](docs/architecture/reasoning.md)
+The deploy script starts a new ECS rollout. Once the service stabilises, the script checks that the running tasks use the image digest from that workflow run and that the public health endpoint responds.
 
-Terraform has two roots:
+![Successful application deployment](documentation/screenshots/application-workflow-success.png)
 
-1. **Bootstrap** uses local state to create the S3 remote state bucket and GitHub OIDC access.
-2. **Main** uses that backend and manages the VPC, ECR, DNS, certificates, CloudFront, ALB and ECS.
+See the [application workflow](.github/workflows/application.yaml).
 
-## CI/CD Pipelines
+## Further documentation
 
-GitHub Actions connects to AWS through OIDC, so long-lived AWS access keys are not stored in GitHub.
-
-- **Application** builds, smoke-tests and scans the image. Manual deploys push the scanned image to ECR and roll it out to ECS.
-- **Terraform** checks the configuration on pushes and pull requests. Use the manual workflow to plan, apply or destroy Main.
-
-The screenshots below show earlier workflow runs.
-
-### App build and deployment
-
-![Successful App Deploy pipeline](docs/evidence/pipelines/app-deploy-pipeline-success.png)
-
-### Foundation deployment
-
-![Successful Foundation infrastructure pipeline](docs/evidence/pipelines/deploy-foundation-infra-pipeline-success.png)
-
-### Main infrastructure deployment
-
-![Successful Main infrastructure pipeline](docs/evidence/pipelines/deploy-main-infra-pipeline-success.png)
-
-### Main infrastructure destruction
-
-![Successful Main destruction pipeline](docs/evidence/pipelines/destroy-main-infra-pipeline-success.png)
-
-### Foundation destruction
-
-![Successful Foundation destruction pipeline](docs/evidence/pipelines/destroy-foundation-infra-pipeline-success.png)
-
-## Deploying from Zero
-
-The full environment is created in this order:
-
-1. Run `terraform init` and `terraform apply` locally in `terraform/bootstrap`.
-2. Run the **Terraform** workflow with the `apply` action to create Main with ECS at zero tasks.
-3. Run the **Application** workflow with the `deploy` action to push the image and start ECS.
-
-Use the **Terraform** workflow with the `destroy` action to remove Main. Keep Bootstrap if the backend and OIDC role are still needed.
-
-## Main Technologies
-
-Docker, Terraform, AWS ECS Fargate, ECR, VPC, ALB, CloudFront, Route 53, ACM, S3 (Terraform state), CloudWatch, Cloudflare and GitHub Actions.
-
-## TIME LOG: 59 HOURS
+- [System design](documentation/system-design.md) explains what the app does, how it runs on Fargate, and how the service scales.
+- [Networking](documentation/networking.md) covers the VPC layout, DNS, and the path requests take from the browser to the app.
+- [Security](documentation/security-overview.md) covers network access, HTTPS, IAM roles, and Terraform state.
+- [CI/CD](documentation/cicd-overview.md) walks through both workflows, when they run, and how a release is verified.
+- [Future improvements](documentation/future-improvements.md) describes what I’d add in a future version.
