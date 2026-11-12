@@ -50,7 +50,6 @@ resource "aws_ecs_task_definition" "app" {
   memory = "512"
 
   execution_role_arn = var.ecs_execution_role_arn
-  task_role_arn      = var.ecs_task_role_arn
 
   container_definitions = jsonencode([
     {
@@ -62,17 +61,6 @@ resource "aws_ecs_task_definition" "app" {
         {
           containerPort = 8080
           protocol      = "tcp"
-        }
-      ]
-
-      environment = [
-        {
-          name  = "DYNAMODB_TABLE"
-          value = var.dynamodb_table_name
-        },
-        {
-          name  = "REPORTS_BUCKET"
-          value = var.reports_bucket_name
         }
       ]
 

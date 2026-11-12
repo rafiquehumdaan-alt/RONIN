@@ -162,24 +162,6 @@ data "aws_iam_policy_document" "github_actions_permissions" {
   }
 
   statement {
-    sid = "ApplicationStorage"
-    actions = [
-      "s3:*",
-      "dynamodb:*"
-    ]
-    resources = ["*"]
-  }
-
-  statement {
-    sid = "LambdaAndScheduler"
-    actions = [
-      "lambda:*",
-      "scheduler:*"
-    ]
-    resources = ["*"]
-  }
-
-  statement {
     sid       = "Logging"
     actions   = ["logs:*"]
     resources = ["*"]

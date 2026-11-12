@@ -18,21 +18,6 @@ variable "ecs_execution_role_arn" {
   type        = string
 }
 
-variable "ecs_task_role_arn" {
-  description = "ARN of the RONIN ECS task role"
-  type        = string
-}
-
-variable "dynamodb_table_name" {
-  description = "Name of the RONIN DynamoDB table"
-  type        = string
-}
-
-variable "reports_bucket_name" {
-  description = "Name of the RONIN reports S3 bucket"
-  type        = string
-}
-
 variable "private_subnet_ids" {
   description = "IDs of the private subnets for the RONIN ECS tasks"
   type        = list(string)

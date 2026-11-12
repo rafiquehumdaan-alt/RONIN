@@ -11,11 +11,6 @@ terraform {
       source  = "cloudflare/cloudflare"
       version = "~> 5.0"
     }
-
-    archive = {
-      source  = "hashicorp/archive"
-      version = "~> 2.7"
-    }
   }
 }
 
@@ -72,18 +67,8 @@ module "vpc" {
   availability_zone_b = "eu-west-2b"
 }
 
-module "storage" {
-  source = "./modules/storage"
-
-  dynamodb_table_name = "ronin-analyses"
-  reports_bucket_name = "ronin-reports"
-}
-
 module "iam" {
   source = "./modules/iam"
-
-  dynamodb_table_arn = module.storage.dynamodb_table_arn
-  reports_bucket_arn = module.storage.reports_bucket_arn
 }
 
 module "acm" {
@@ -141,18 +126,4 @@ module "ecs" {
   ecr_repository_url = aws_ecr_repository.ronin.repository_url
 
   ecs_execution_role_arn = module.iam.ecs_execution_role_arn
-  ecs_task_role_arn      = module.iam.ecs_task_role_arn
-
-  dynamodb_table_name = module.storage.dynamodb_table_name
-  reports_bucket_name = module.storage.reports_bucket_name
-}
-
-module "lambda" {
-  source = "./modules/lambda"
-
-  dynamodb_table_name = module.storage.dynamodb_table_name
-  dynamodb_table_arn  = module.storage.dynamodb_table_arn
-
-  reports_bucket_name = module.storage.reports_bucket_name
-  reports_bucket_arn  = module.storage.reports_bucket_arn
 }

@@ -63,7 +63,7 @@ Fargate task → ALB → CloudFront → User
 
 ## Important distinction
 
-The NAT gateways are not part of this incoming request path. They allow tasks in private subnets to start outbound connections when required. S3 and DynamoDB gateway endpoints provide private routes to those AWS services.
+The NAT gateways are not part of this incoming request path. They allow tasks in private subnets to start outbound connections when required. Each private subnet routes outbound HTTPS through its Availability Zone's NAT gateway for ECR image pulls, ECR layer downloads and CloudWatch Logs.
 
 ## DNS records involved
 

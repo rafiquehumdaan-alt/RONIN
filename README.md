@@ -15,7 +15,7 @@ The deployed application is served securely at `https://ronin.humdaan.co.uk` thr
 
 ![RONIN application running over HTTPS](docs/evidence/application/webapp-ui-https.png)
 
-The interface lets a user analyse the demo environment, review findings and generate a report.
+The interface lets a user review findings calculated from the demo environment and simulate recommended actions.
 
 ## Local Setup
 
@@ -29,7 +29,7 @@ The interface lets a user analyse the demo environment, review findings and gene
 ```bash
 git clone https://github.com/rafiquehumdaan-alt/RONIN.git
 cd RONIN
-docker build -t ronin:local .
+docker build -t ronin:local ./app
 docker run --rm -p 8080:8080 ronin:local
 ```
 
@@ -46,25 +46,23 @@ curl http://localhost:8080/health
 
 ## Architecture
 
-RONIN runs in AWS across two Availability Zones. Cloudflare delegates the RONIN subdomain to Route 53, and user traffic travels through CloudFront and an Application Load Balancer to ECS Fargate tasks in private subnets. ECR stores the container image, while DynamoDB, S3, Lambda and EventBridge support application data and weekly reports.
+RONIN runs in AWS across two Availability Zones. Cloudflare delegates the RONIN subdomain to Route 53, and user traffic travels through CloudFront and an Application Load Balancer to ECS Fargate tasks in private subnets. The tasks use the NAT gateway in their Availability Zone for ECR image pulls, including image-layer downloads. Flask computes findings from demo data when the page is requested.
 
-[Open the full-size architecture diagram](docs/architecture/ronin-aws-architecture-v2.png)
+[Read the architecture and network design](docs/architecture/reasoning.md)
 
-[![RONIN AWS architecture](docs/architecture/ronin-aws-architecture-v2.png)](docs/architecture/ronin-aws-architecture-v2.png)
+Terraform has two roots:
 
-Terraform is separated into three small stages because each stage provides something required by the next:
-
-1. **Bootstrap** uses local state to create the remote state bucket and GitHub OIDC access.
-2. **Foundation** creates ECR, the Route 53 hosted zone and Cloudflare delegation.
-3. **Main** creates the VPC, certificates, CloudFront, ALB, ECS, storage and reporting resources.
+1. **Bootstrap** uses local state to create the S3 remote state bucket and GitHub OIDC access.
+2. **Main** uses that backend and manages the VPC, ECR, DNS, certificates, CloudFront, ALB and ECS.
 
 ## CI/CD Pipelines
 
 GitHub Actions connects to AWS through OIDC, so long-lived AWS access keys are not stored in GitHub.
 
-- **App Deploy** builds the Docker image, starts it, checks `/health` and then pushes SHA and `latest` tags to ECR.
-- **Infrastructure** checks the Terraform code and can plan or apply Foundation and Main in order.
-- **Destroy Infrastructure** safely removes Main first and Foundation second after typed confirmation.
+- **Application** builds, smoke-tests and scans the image. Manual deploys push the scanned image to ECR and roll it out to ECS.
+- **Terraform** checks the configuration on pushes and pull requests. Use the manual workflow to plan, apply or destroy Main.
+
+The screenshots below show earlier workflow runs.
 
 ### App build and deployment
 
@@ -90,15 +88,14 @@ GitHub Actions connects to AWS through OIDC, so long-lived AWS access keys are n
 
 The full environment is created in this order:
 
-1. Run `terraform init` and `terraform apply` locally in `infra/bootstrap`.
-2. Run the **Infrastructure** workflow for `foundation` with the `apply` action.
-3. Run the **App Deploy** workflow to build and push the image to ECR.
-4. Run the **Infrastructure** workflow for `main` with the `apply` action.
+1. Run `terraform init` and `terraform apply` locally in `terraform/bootstrap`.
+2. Run the **Terraform** workflow with the `apply` action to create Main with ECS at zero tasks.
+3. Run the **Application** workflow with the `deploy` action to push the image and start ECS.
 
-To return to zero infrastructure, run the destroy workflow for **Main**, then **Foundation**, and finally run `terraform destroy` locally in `infra/bootstrap`.
+Use the **Terraform** workflow with the `destroy` action to remove Main. Keep Bootstrap if the backend and OIDC role are still needed.
 
 ## Main Technologies
 
-Docker, Terraform, AWS ECS Fargate, ECR, VPC, ALB, CloudFront, Route 53, ACM, DynamoDB, S3, Lambda, EventBridge, CloudWatch, Cloudflare and GitHub Actions.
+Docker, Terraform, AWS ECS Fargate, ECR, VPC, ALB, CloudFront, Route 53, ACM, S3 (Terraform state), CloudWatch, Cloudflare and GitHub Actions.
 
 ## TIME LOG: 59 HOURS
