@@ -93,8 +93,13 @@ jobs:
         id: ecr
         uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd
 
-      - name: Push image and roll out to ECS
+      - name: Push image to ECR
         env:
           REPOSITORY: ${{ steps.ecr.outputs.registry }}/ronin
           IMAGE_TAG: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
-        run: bash scripts/deploy-ecs.sh "$LOCAL_IMAGE" "$REPOSITORY" "$IMAGE_TAG"
+        run: bash scripts/push-image-to-ecr.sh "$LOCAL_IMAGE" "$REPOSITORY" "$IMAGE_TAG"
+
+      - name: Roll out to ECS
+        env:
+          IMAGE_TAG: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+        run: bash scripts/deploy-ecs.sh "$IMAGE_TAG"
