@@ -63,3 +63,5 @@ if [[ "$minimum" == 0 ]]; then
     --resource-id "service/$cluster/$service" \
     --min-capacity 2
 fi
+
+# Start an ECS rollout, wait for it to stabilise, verify the running image digest and public /health, then set the autoscaling minimum to two tasks on the first successful deploy.

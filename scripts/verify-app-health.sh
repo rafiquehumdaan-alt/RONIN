@@ -20,3 +20,5 @@ done
 
 echo "Timed out waiting for $HEALTH_URL." >&2
 exit 1
+
+	# Check the live app's /health endpoint and retry if needed.

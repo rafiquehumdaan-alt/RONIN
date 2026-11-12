@@ -12,3 +12,5 @@ if ! bash scripts/verify-app-health.sh "http://$CONTAINER_ADDRESS/health" 2; the
   docker logs "$CONTAINER_ID"
   exit 1
 fi
+
+	# Run the container locally and check its /health endpoint.

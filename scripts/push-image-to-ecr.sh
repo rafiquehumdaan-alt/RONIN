@@ -14,3 +14,5 @@ for IMAGE_URI in "$ECR_REPOSITORY_URI:$IMAGE_TAG" "$ECR_REPOSITORY_URI:latest"; 
 
   echo "Image pushed: $IMAGE_URI"
 done
+
+# Tag the Docker image and push it to Amazon ECR.
