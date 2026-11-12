@@ -2,15 +2,13 @@ name: Terraform Workflow
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
     paths:
       - "terraform/**"
       - ".github/workflows/terraform.yaml"
 
   pull_request:
-    branches:
-      - main
+    branches: [main]
     paths:
       - "terraform/**"
       - ".github/workflows/terraform.yaml"
@@ -19,8 +17,9 @@ on:
     inputs:
       action:
         description: "Choose the Terraform action to perform"
-        required: true
         type: choice
+        required: true
+        default: plan
         options:
           - plan
           - apply
@@ -35,12 +34,12 @@ concurrency:
 
 env:
   AWS_REGION: eu-west-2
-  TF_IN_AUTOMATION: 'true'
+  TF_IN_AUTOMATION: "true"
 
 jobs:
   terraform-checks:
-    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
+
     defaults:
       run:
         working-directory: terraform
@@ -52,16 +51,24 @@ jobs:
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
 
-      - name: Terraform format
+      - name: Check Terraform formatting
         run: terraform fmt -check -recursive
 
-      - name: Initialise providers
+      - name: Initialise providers without the backend
         run: terraform init -backend=false -input=false
 
       - name: Validate Main
         run: terraform validate
 
-      - name: Checkov Terraform Security Scan
+      - name: Set up TFLint
+        uses: terraform-linters/setup-tflint@1cf010d3c7aef302051ccdb68c14c5dc2efa34ef # v6.3.1
+        with:
+          tflint_version: v0.65.0
+
+      - name: Run TFLint
+        run: tflint --recursive
+
+      - name: Scan Terraform with Checkov
         uses: bridgecrewio/checkov-action@99bb2caf247dfd9f03cf984373bc6043d4e32ebf
         with:
           directory: terraform
@@ -70,13 +77,17 @@ jobs:
 
   main:
     if: github.event_name == 'workflow_dispatch'
+    needs: terraform-checks
     runs-on: ubuntu-latest
+
     permissions:
       contents: read
       id-token: write
+
     defaults:
       run:
         working-directory: terraform
+
     env:
       TF_VAR_cloudflare_zone_id: ${{ vars.CLOUDFLARE_ZONE_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -101,11 +112,11 @@ jobs:
         if: inputs.action == 'plan'
         run: terraform plan -input=false
 
-      - name: Plan Main for apply
+      - name: Save apply plan
         if: inputs.action == 'apply'
         run: terraform plan -input=false -out=main.tfplan
 
-      - name: Plan destroy
+      - name: Save destroy plan
         if: inputs.action == 'destroy'
         run: terraform plan -input=false -destroy -out=main.tfplan
 
@@ -115,4 +126,4 @@ jobs:
 
       - name: Report infrastructure readiness
         if: inputs.action == 'apply'
-        run: echo "RONIN infrastructure is ready. Run App Deploy next."
+        run: echo "RONIN infrastructure is ready. Run the Application Workflow with deploy to release the app."

@@ -2,35 +2,26 @@ name: Application Workflow
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
     paths:
       - "app/**"
-      - "scripts/build-image.sh"
-      - "scripts/check-container.sh"
-      - "scripts/deploy-ecs.sh"
-      - "scripts/push-image-to-ecr.sh"
-      - "scripts/verify-app-health.sh"
+      - "scripts/**"
       - ".github/workflows/application.yaml"
 
   pull_request:
-    branches:
-      - main
+    branches: [main]
     paths:
       - "app/**"
-      - "scripts/build-image.sh"
-      - "scripts/check-container.sh"
-      - "scripts/deploy-ecs.sh"
-      - "scripts/push-image-to-ecr.sh"
-      - "scripts/verify-app-health.sh"
+      - "scripts/**"
       - ".github/workflows/application.yaml"
 
   workflow_dispatch:
     inputs:
       action:
-        description: "Choose the application action to perform"
+        description: "Choose the application action"
         type: choice
         required: true
+        default: scan-only
         options:
           - scan-only
           - deploy
@@ -46,44 +37,29 @@ env:
   LOCAL_IMAGE: ronin:${{ github.sha }}
 
 jobs:
-  build:
+  checks:
+    if: github.event_name != 'workflow_dispatch' || inputs.action == 'scan-only'
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
-      - name: Build Docker image
-        run: bash scripts/build-image.sh "$LOCAL_IMAGE"
+      - name: Build and test image
+        run: |
+          bash scripts/build-image.sh "$LOCAL_IMAGE"
+          bash scripts/check-container.sh "$LOCAL_IMAGE"
 
-      - name: Verify container health
-        run: bash scripts/check-container.sh "$LOCAL_IMAGE"
-
-      - name: Scan Docker image
+      - name: Scan image with Trivy
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           image-ref: ${{ env.LOCAL_IMAGE }}
           format: table
-          exit-code: '0'
           severity: CRITICAL,HIGH
-
-      - name: Save scanned image
-        if: github.event_name == 'workflow_dispatch' && inputs.action == 'deploy'
-        run: docker save "$LOCAL_IMAGE" -o ronin-image.tar
-
-      - name: Upload scanned image
-        if: github.event_name == 'workflow_dispatch' && inputs.action == 'deploy'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: ronin-image
-          path: ronin-image.tar
-          overwrite: true
-          if-no-files-found: error
-          retention-days: 1
+          exit-code: '0'
 
   deploy:
-    if: github.event_name == 'workflow_dispatch' && inputs.action == 'deploy'
-    needs: build
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'deploy' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
 
     permissions:
@@ -94,25 +70,30 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
-      - name: Download scanned image
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - name: Build and test image
+        run: |
+          bash scripts/build-image.sh "$LOCAL_IMAGE"
+          bash scripts/check-container.sh "$LOCAL_IMAGE"
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
-          name: ronin-image
+          image-ref: ${{ env.LOCAL_IMAGE }}
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: '0'
 
-      - name: Load scanned image
-        run: docker load -i ronin-image.tar
-
-      - name: Configure AWS Credentials
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a
         with:
           role-to-assume: arn:aws:iam::435059220418:role/ronin-github-actions
           aws-region: eu-west-2
 
-      - name: Login to ECR repository
+      - name: Log in to Amazon ECR
         id: ecr
         uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd
 
-      - name: Deploy RONIN to ECS
+      - name: Push image and roll out to ECS
         env:
           REPOSITORY: ${{ steps.ecr.outputs.registry }}/ronin
           IMAGE_TAG: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
