@@ -89,13 +89,12 @@ resource "aws_ecs_task_definition" "app" {
   ])
 }
 
-# Defines the RONIN Fargate task, including its container image, CPU/memory, IAM roles, port, environment variables and CloudWatch logging.
-
 resource "aws_ecs_service" "app" {
   name            = "ronin-service"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.app.arn
   desired_count   = 0
+  availability_zone_rebalancing = "ENABLED"
   launch_type     = "FARGATE"
 
   network_configuration {
